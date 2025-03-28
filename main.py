@@ -19,7 +19,7 @@ gc.collect()
 # ====================
 
 # Use a more accessible model that doesn't require special permissions
-model_name = "facebook/opt-350m"
+model_name = "meta-llama/Llama-3.2-3B-Instruct"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
