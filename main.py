@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from sklearn.manifold import TSNE
 import numpy as np
 import gc
 from scipy.stats import entropy
@@ -36,9 +35,7 @@ kv_cache = outputs.past_key_values
 # Extract basic info about the model
 num_layers = len(kv_cache)
 batch_size, num_heads, seq_len, head_dim = kv_cache[0][0].shape
-print(
-    f"KV cache structure: {num_layers} layers, {num_heads} heads, {seq_len} sequence length, {head_dim} head dimensions"
-)
+print(f"KV cache structure: {num_layers} layers, {num_heads} heads, {seq_len} sequence length, {head_dim} head dimensions")
 
 # ====================
 # Layer-wise Analysis
@@ -50,34 +47,26 @@ layer_stats = []
 # Process each layer
 all_keys = []
 all_values = []
-fig, axes = plt.subplots(num_layers, 2, figsize=(15, 3 * num_layers))
+
+# Calculate global max values for relative thresholding
+global_k_max = max([layer_kv[0].abs().max().item() for layer_kv in kv_cache])
+global_v_max = max([layer_kv[1].abs().max().item() for layer_kv in kv_cache])
+k_threshold = 0.01 * global_k_max
+v_threshold = 0.01 * global_v_max
+print(f"Using thresholds - Keys: {k_threshold:.6f}, Values: {v_threshold:.6f} (1% of max weights)")
 
 for layer_idx, layer_kv in enumerate(kv_cache):
     # Extract keys and values
     keys = layer_kv[0].detach().cpu()  # [batch_size, num_heads, seq_len, head_dim]
     values = layer_kv[1].detach().cpu()  # [batch_size, num_heads, seq_len, head_dim]
 
-    # Reshape for analysis: [batch_size, num_heads, seq_len, head_dim] -> [seq_len, num_heads*head_dim]
-    k_reshaped = (
-        keys.view(batch_size, num_heads, seq_len, head_dim)
-        .squeeze(0)
-        .permute(1, 0, 2)
-        .reshape(seq_len, -1)
-    )
-    v_reshaped = (
-        values.view(batch_size, num_heads, seq_len, head_dim)
-        .squeeze(0)
-        .permute(1, 0, 2)
-        .reshape(seq_len, -1)
-    )
-
     # Store for global analysis
-    all_keys.append(keys.reshape(-1))
-    all_values.append(values.reshape(-1))
+    all_keys.append(keys)
+    all_values.append(values)
 
-    # Calculate statistics for this layer
-    k_sparsity = (keys.abs() < 1e-5).float().mean().item()
-    v_sparsity = (values.abs() < 1e-5).float().mean().item()
+    # Calculate statistics for this layer using relative threshold
+    k_sparsity = (keys.abs() < k_threshold).float().mean().item()
+    v_sparsity = (values.abs() < v_threshold).float().mean().item()
     k_mean = keys.abs().mean().item()
     v_mean = values.abs().mean().item()
     k_std = keys.std().item()
@@ -88,653 +77,419 @@ for layer_idx, layer_kv in enumerate(kv_cache):
     v_flat = values.reshape(-1).numpy()
     correlation = np.corrcoef(k_flat, v_flat)[0, 1]
 
-    # Visualize this layer's KV patterns
-    sns.heatmap(k_reshaped, cmap="viridis", ax=axes[layer_idx, 0])
-    axes[layer_idx, 0].set_title(f"Layer {layer_idx} Keys")
-    axes[layer_idx, 0].set_xlabel("Head Dimension × Heads")
-    axes[layer_idx, 0].set_ylabel("Position")
-
-    sns.heatmap(v_reshaped, cmap="magma", ax=axes[layer_idx, 1])
-    axes[layer_idx, 1].set_title(f"Layer {layer_idx} Values")
-    axes[layer_idx, 1].set_xlabel("Head Dimension × Heads")
-    axes[layer_idx, 1].set_ylabel("Position")
-
     # Add to statistics
-    layer_stats.append(
-        {
+    layer_stats.append({
+        "layer": layer_idx,
+        "k_sparsity": k_sparsity,
+        "v_sparsity": v_sparsity,
+        "k_mean": k_mean,
+        "v_mean": v_mean,
+        "k_std": k_std,
+        "v_std": v_std,
+        "kv_correlation": correlation,
+    })
+
+# Create a dataframe with layer statistics
+layer_df = pd.DataFrame(layer_stats)
+print("Layer-wise Statistics:")
+print(layer_df)
+
+# Plot layer statistics
+plt.figure(figsize=(12, 8))
+
+plt.subplot(2, 2, 1)
+plt.plot(layer_df["layer"], layer_df["k_sparsity"], "b-o", label="Key Sparsity")
+plt.plot(layer_df["layer"], layer_df["v_sparsity"], "r-o", label="Value Sparsity")
+plt.title("Sparsity Across Layers")
+plt.xlabel("Layer")
+plt.ylabel("Sparsity (ratio of near-zero values)")
+plt.legend()
+plt.grid(True)
+
+plt.subplot(2, 2, 2)
+plt.plot(layer_df["layer"], layer_df["kv_correlation"], "g-o")
+plt.title("Key-Value Correlation Across Layers")
+plt.xlabel("Layer")
+plt.ylabel("Correlation")
+plt.grid(True)
+
+plt.subplot(2, 2, 3)
+plt.plot(layer_df["layer"], layer_df["k_std"], "b-o", label="Key Std")
+plt.plot(layer_df["layer"], layer_df["v_std"], "r-o", label="Value Std")
+plt.title("Standard Deviation Across Layers")
+plt.xlabel("Layer")
+plt.ylabel("Standard Deviation")
+plt.legend()
+plt.grid(True)
+
+plt.subplot(2, 2, 4)
+plt.plot(layer_df["layer"], layer_df["k_mean"], "b-o", label="Key Mean")
+plt.plot(layer_df["layer"], layer_df["v_mean"], "r-o", label="Value Mean")
+plt.title("Mean Absolute Value Across Layers")
+plt.xlabel("Layer")
+plt.ylabel("Mean")
+plt.legend()
+plt.grid(True)
+
+plt.tight_layout()
+plt.savefig("layer_statistics.png", dpi=300)
+
+# ====================
+# Head-level Analysis
+# ====================
+
+# Store head-wise statistics across all layers
+head_stats = []
+
+for layer_idx in range(num_layers):
+    keys = all_keys[layer_idx]  # [batch_size, num_heads, seq_len, head_dim]
+    values = all_values[layer_idx]
+    
+    for head_idx in range(num_heads):
+        # Extract data for this head
+        head_keys = keys[:, head_idx, :, :]  # [batch_size, seq_len, head_dim]
+        head_values = values[:, head_idx, :, :]
+        
+        # Calculate sparsity for this head
+        k_sparsity = (head_keys.abs() < k_threshold).float().mean().item()
+        v_sparsity = (head_values.abs() < v_threshold).float().mean().item()
+        k_mean = head_keys.abs().mean().item()
+        v_mean = head_values.abs().mean().item()
+        k_std = head_keys.std().item()
+        v_std = head_values.std().item()
+        
+        # Add to head statistics
+        head_stats.append({
             "layer": layer_idx,
+            "head": head_idx,
             "k_sparsity": k_sparsity,
             "v_sparsity": v_sparsity,
             "k_mean": k_mean,
             "v_mean": v_mean,
             "k_std": k_std,
             "v_std": v_std,
-            "kv_correlation": correlation,
-        }
-    )
+        })
 
-plt.tight_layout()
-plt.savefig("kv_cache_layers.png", dpi=300)
+# Create a dataframe with head statistics
+head_df = pd.DataFrame(head_stats)
 
-# ====================
-# Global Statistics
-# ====================
+# Create a heatmap of head sparsity across layers
+plt.figure(figsize=(14, 10))
 
-# Concatenate all keys and values for global analysis
-k_matrix = torch.cat(all_keys, dim=0)
-v_matrix = torch.cat(all_values, dim=0)
-
-# Create a dataframe with layer statistics
-stats_df = pd.DataFrame(layer_stats)
-print("Layer-wise Statistics:")
-print(stats_df)
-
-# Plot layer statistics
-plt.figure(figsize=(12, 8))
-
-plt.subplot(2, 2, 1)
-plt.plot(stats_df["layer"], stats_df["k_sparsity"], "b-o", label="Key Sparsity")
-plt.plot(stats_df["layer"], stats_df["v_sparsity"], "r-o", label="Value Sparsity")
-plt.title("Sparsity Across Layers")
-plt.xlabel("Layer")
-plt.ylabel("Sparsity (ratio of near-zero values)")
-plt.legend()
-
-plt.subplot(2, 2, 2)
-plt.plot(stats_df["layer"], stats_df["kv_correlation"], "g-o")
-plt.title("Key-Value Correlation Across Layers")
-plt.xlabel("Layer")
-plt.ylabel("Correlation")
-
-plt.subplot(2, 2, 3)
-plt.plot(stats_df["layer"], stats_df["k_std"], "b-o", label="Key Std")
-plt.plot(stats_df["layer"], stats_df["v_std"], "r-o", label="Value Std")
-plt.title("Standard Deviation Across Layers")
-plt.xlabel("Layer")
-plt.ylabel("Standard Deviation")
-plt.legend()
-
-plt.subplot(2, 2, 4)
-plt.plot(stats_df["layer"], stats_df["k_mean"], "b-o", label="Key Mean")
-plt.plot(stats_df["layer"], stats_df["v_mean"], "r-o", label="Value Mean")
-plt.title("Mean Absolute Value Across Layers")
-plt.xlabel("Layer")
-plt.ylabel("Mean")
-plt.legend()
-
-plt.tight_layout()
-plt.savefig("kv_cache_statistics.png", dpi=300)
-
-# ====================
-# Token-level Analysis
-# ====================
-
-# Decode tokens for analysis
-input_ids = inputs["input_ids"][0].cpu().numpy()
-tokens = tokenizer.convert_ids_to_tokens(input_ids)
-token_strings = [tokenizer.decode([id]) for id in input_ids]
-
-# Create arrays to store token-wise statistics
-token_stats = []
-
-# Calculate key and value magnitudes for each token
-for pos in range(seq_len):
-    # Get token identity
-    token_id = input_ids[pos]
-    token = tokens[pos]
-    token_str = token_strings[pos].strip()
-
-    # Calculate average magnitudes across all layers and heads
-    k_magnitudes = []
-    v_magnitudes = []
-
-    for layer_idx, layer_kv in enumerate(kv_cache):
-        keys = layer_kv[0].detach().cpu()[0, :, pos, :]  # [num_heads, head_dim]
-        values = layer_kv[1].detach().cpu()[0, :, pos, :]  # [num_heads, head_dim]
-
-        k_mag = keys.abs().mean().item()  # Average magnitude across all heads
-        v_mag = values.abs().mean().item()
-
-        k_magnitudes.append(k_mag)
-        v_magnitudes.append(v_mag)
-
-    # Average across all layers
-    avg_k_mag = np.mean(k_magnitudes)
-    avg_v_mag = np.mean(v_magnitudes)
-
-    # Add to token statistics
-    token_stats.append(
-        {
-            "position": pos,
-            "token_id": token_id,
-            "token": token,
-            "token_str": token_str,
-            "key_magnitude": avg_k_mag,
-            "value_magnitude": avg_v_mag,
-        }
-    )
-
-# Convert to DataFrame for easier analysis
-token_df = pd.DataFrame(token_stats)
-
-# Categorize tokens into types before using them
-token_types = []
-for token in token_df["token_str"]:
-    # Check for numbers
-    if any(char.isdigit() for char in token):
-        token_types.append("number")
-    # Check for punctuation
-    elif any(char in ".,;:!?()[]{}\"'`" for char in token):
-        token_types.append("punctuation")
-    # Check for common stopwords (you can expand this)
-    elif token.lower().strip() in ["the", "of", "and", "a", "to", "in", "that", "with"]:
-        token_types.append("stopword")
-    # Check for capitalized words (potential proper nouns)
-    elif token and token[0].isupper():
-        token_types.append("proper_noun")
-    # Everything else
-    else:
-        token_types.append("other")
-
-# Add the token types to the dataframe
-token_df["token_type"] = token_types
-
-print("\nToken-wise Statistics (Top 10 by Key Magnitude):")
-print(token_df.sort_values(by="key_magnitude", ascending=False).head(10))
-print("\nToken-wise Statistics (Top 10 by Value Magnitude):")
-print(token_df.sort_values(by="value_magnitude", ascending=False).head(10))
-
-# Print lowest importance tokens
-print("\nToken-wise Statistics (Bottom 10 by Key Magnitude):")
-print(token_df.sort_values(by="key_magnitude", ascending=True).head(10))
-print("\nToken-wise Statistics (Bottom 10 by Value Magnitude):")
-print(token_df.sort_values(by="value_magnitude", ascending=True).head(10))
-
-# Create a visualization for low-importance tokens
-bottom_tokens = pd.concat(
-    [
-        token_df.sort_values(by="key_magnitude", ascending=True).head(10),
-        token_df.sort_values(by="value_magnitude", ascending=True).head(10),
-    ]
-).drop_duplicates()
-
-plt.figure(figsize=(15, 10))
-
-# Create a scatter plot with all tokens, highlighting low importance ones
-plt.scatter(
-    token_df["key_magnitude"],
-    token_df["value_magnitude"],
-    alpha=0.4,
-    c=token_df["position"],
-    cmap="viridis",
-    label="All tokens",
-)
-
-# Add special markers for lowest importance tokens
-plt.scatter(
-    bottom_tokens["key_magnitude"],
-    bottom_tokens["value_magnitude"],
-    color="red",
-    s=100,
-    marker="x",
-    label="Lowest importance tokens",
-)
-
-# Label bottom tokens
-for _, row in bottom_tokens.iterrows():
-    plt.annotate(
-        row["token_str"],
-        (row["key_magnitude"], row["value_magnitude"]),
-        xytext=(5, 5),
-        textcoords="offset points",
-        color="red",
-    )
-
-plt.colorbar(label="Position in sequence")
-plt.title("Low Importance Tokens in KV Space")
-plt.xlabel("Key Magnitude")
-plt.ylabel("Value Magnitude")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.savefig("low_importance_tokens.png", dpi=300)
-
-# Add a combined visualization with both high and low importance tokens
-plt.figure(figsize=(15, 10))
-
-# Define top_tokens based on the highest key and value magnitudes
-top_tokens = pd.concat(
-    [
-        token_df.sort_values(by="key_magnitude", ascending=False).head(10),
-        token_df.sort_values(by="value_magnitude", ascending=False).head(10),
-    ]
-).drop_duplicates()
-
-# Plot all tokens first
-plt.scatter(
-    token_df["key_magnitude"],
-    token_df["value_magnitude"],
-    alpha=0.3,
-    c="gray",
-    label="Regular tokens",
-)
-
-# Add high importance tokens
-plt.scatter(
-    top_tokens["key_magnitude"],
-    top_tokens["value_magnitude"],
-    color="blue",
-    marker="o",
-    s=80,
-    label="Highest importance tokens",
-)
-
-# Add low importance tokens
-plt.scatter(
-    bottom_tokens["key_magnitude"],
-    bottom_tokens["value_magnitude"],
-    color="red",
-    marker="x",
-    s=80,
-    label="Lowest importance tokens",
-)
-
-# Label tokens
-for _, row in pd.concat([top_tokens, bottom_tokens]).iterrows():
-    color = (
-        "blue" if row["key_magnitude"] in top_tokens["key_magnitude"].values else "red"
-    )
-    plt.annotate(
-        row["token_str"],
-        (row["key_magnitude"], row["value_magnitude"]),
-        xytext=(5, 5),
-        textcoords="offset points",
-        color=color,
-        fontweight="bold",
-    )
-
-plt.title("High vs Low Importance Tokens in KV Space")
-plt.xlabel("Key Magnitude")
-plt.ylabel("Value Magnitude")
-plt.grid(True)
-plt.legend()
-plt.tight_layout()
-plt.savefig("token_importance_comparison.png", dpi=300)
-
-# Add boxplots to compare magnitude distribution between token types
-plt.figure(figsize=(15, 10))
-
-# Prepare data for boxplot
-token_types_unique = sorted(token_df["token_type"].unique())
-key_data = [
-    token_df[token_df["token_type"] == t]["key_magnitude"] for t in token_types_unique
-]
-value_data = [
-    token_df[token_df["token_type"] == t]["value_magnitude"] for t in token_types_unique
-]
-
-# Create box plots
 plt.subplot(2, 1, 1)
-plt.boxplot(key_data, labels=token_types_unique)
-plt.title("Distribution of Key Magnitudes by Token Type")
-plt.ylabel("Key Magnitude")
-plt.grid(True, axis="y")
-plt.xticks(rotation=45)
+head_k_sparsity = head_df.pivot(index="layer", columns="head", values="k_sparsity")
+sns.heatmap(head_k_sparsity, cmap="Blues", annot=True, fmt=".2f")
+plt.title("Key Sparsity by Head and Layer")
+plt.xlabel("Head Index")
+plt.ylabel("Layer")
 
 plt.subplot(2, 1, 2)
-plt.boxplot(value_data, labels=token_types_unique)
-plt.title("Distribution of Value Magnitudes by Token Type")
-plt.ylabel("Value Magnitude")
-plt.grid(True, axis="y")
-plt.xticks(rotation=45)
+head_v_sparsity = head_df.pivot(index="layer", columns="head", values="v_sparsity")
+sns.heatmap(head_v_sparsity, cmap="Blues", annot=True, fmt=".2f")
+plt.title("Value Sparsity by Head and Layer")
+plt.xlabel("Head Index")
+plt.ylabel("Layer")
 
 plt.tight_layout()
-plt.savefig("token_magnitude_distributions.png", dpi=300)
+plt.savefig("head_sparsity.png", dpi=300)
 
-# Visualize token magnitudes
-plt.figure(figsize=(15, 8))
+# Identify prunable heads (high sparsity)
+prunable_heads_threshold = 0.5  # Adjust based on your sparsity criteria
+prunable_heads = head_df[(head_df["k_sparsity"] > prunable_heads_threshold) | 
+                        (head_df["v_sparsity"] > prunable_heads_threshold)]
 
-# Plot magnitude by position
-plt.subplot(2, 1, 1)
-plt.plot(token_df["position"], token_df["key_magnitude"], "b-o", label="Key Magnitude")
-plt.plot(
-    token_df["position"], token_df["value_magnitude"], "r-o", label="Value Magnitude"
-)
-plt.title("KV Magnitudes by Token Position")
-plt.xlabel("Token Position")
-plt.ylabel("Average Magnitude")
-plt.xticks(
-    token_df["position"][::5], token_df["token_str"][::5], rotation=45, ha="right"
-)
-plt.legend()
-plt.grid(True)
-
-# Categorize tokens into types (this is a simple example - you can make it more sophisticated)
-token_types = []
-for token in token_df["token_str"]:
-    # Check for numbers
-    if any(char.isdigit() for char in token):
-        token_types.append("number")
-    # Check for punctuation
-    elif any(char in ".,;:!?()[]{}\"'`" for char in token):
-        token_types.append("punctuation")
-    # Check for common stopwords (you can expand this)
-    elif token.lower().strip() in ["the", "of", "and", "a", "to", "in", "that", "with"]:
-        token_types.append("stopword")
-    # Check for capitalized words (potential proper nouns)
-    elif token and token[0].isupper():
-        token_types.append("proper_noun")
-    # Everything else
-    else:
-        token_types.append("other")
-
-token_df["token_type"] = token_types
-
-# Boxplot of magnitudes by token type
-plt.subplot(2, 1, 2)
-token_type_data = []
-for token_type in set(token_types):
-    type_df = token_df[token_df["token_type"] == token_type]
-    token_type_data.append(
-        {
-            "token_type": token_type,
-            "avg_key_mag": type_df["key_magnitude"].mean(),
-            "avg_value_mag": type_df["value_magnitude"].mean(),
-            "key_values": type_df["key_magnitude"].values,
-            "value_values": type_df["value_magnitude"].values,
-        }
-    )
-
-type_df = pd.DataFrame(token_type_data).sort_values(by="avg_key_mag", ascending=False)
-
-# Create side-by-side bars for key and value magnitudes
-x = np.arange(len(type_df))
-width = 0.35
-plt.bar(
-    x - width / 2, type_df["avg_key_mag"], width, label="Key Magnitude", color="blue"
-)
-plt.bar(
-    x + width / 2, type_df["avg_value_mag"], width, label="Value Magnitude", color="red"
-)
-plt.title("Average KV Magnitudes by Token Type")
-plt.xlabel("Token Type")
-plt.ylabel("Average Magnitude")
-plt.xticks(x, type_df["token_type"], rotation=45, ha="right")
-plt.legend()
-plt.grid(True, axis="y")
-
-plt.tight_layout()
-plt.savefig("token_magnitudes.png", dpi=300)
-
-# Create a more detailed token analysis for the top 20 tokens
-top_tokens = pd.concat(
-    [
-        token_df.sort_values(by="key_magnitude", ascending=False).head(10),
-        token_df.sort_values(by="value_magnitude", ascending=False).head(10),
-    ]
-).drop_duplicates()
-
-plt.figure(figsize=(15, 10))
-
-# Create a scatter plot of tokens with key vs value magnitudes
-plt.scatter(
-    token_df["key_magnitude"],
-    token_df["value_magnitude"],
-    alpha=0.7,
-    c=token_df["position"],
-    cmap="viridis",
-)
-
-# Label top tokens
-for _, row in top_tokens.iterrows():
-    plt.annotate(
-        row["token_str"],
-        (row["key_magnitude"], row["value_magnitude"]),
-        xytext=(5, 5),
-        textcoords="offset points",
-    )
-
-plt.colorbar(label="Position in sequence")
-plt.title("Key vs Value Magnitudes for Input Tokens")
-plt.xlabel("Key Magnitude")
-plt.ylabel("Value Magnitude")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("token_key_value_scatter.png", dpi=300)
+if not prunable_heads.empty:
+    print("\nPotentially Prunable Heads (high sparsity):")
+    print(prunable_heads[["layer", "head", "k_sparsity", "v_sparsity"]].sort_values(
+        by=["k_sparsity", "v_sparsity"], ascending=False))
 
 # ====================
-# Value Distribution
+# Head Dimension Analysis
 # ====================
 
-plt.figure(figsize=(15, 6))
+# Store statistics for each dimension in each head
+dim_stats = []
 
-plt.subplot(1, 2, 1)
-plt.hist(k_matrix.numpy(), bins=100, alpha=0.7, color="blue")
-plt.title("Distribution of Key Values")
-plt.xlabel("Value")
-plt.ylabel("Count")
+# We'll analyze a subset of layers if the model is very large
+layers_to_analyze = min(num_layers, 5)  # Analyze up to 5 layers
+selected_layers = list(range(0, num_layers, max(1, num_layers // layers_to_analyze)))[:layers_to_analyze]
 
-plt.subplot(1, 2, 2)
-plt.hist(v_matrix.numpy(), bins=100, alpha=0.7, color="red")
-plt.title("Distribution of Value Values")
-plt.xlabel("Value")
-plt.ylabel("Count")
+for layer_idx in selected_layers:
+    keys = all_keys[layer_idx]  # [batch_size, num_heads, seq_len, head_dim]
+    values = all_values[layer_idx]
+    
+    for head_idx in range(num_heads):
+        # Extract data for this head
+        head_keys = keys[:, head_idx, :, :]  # [batch_size, seq_len, head_dim]
+        head_values = values[:, head_idx, :, :]
+        
+        # Analyze each dimension
+        for dim in range(head_dim):
+            # Extract this specific dimension across all sequence positions
+            dim_k = head_keys[:, :, dim]  # [batch_size, seq_len]
+            dim_v = head_values[:, :, dim]
+            
+            # Calculate statistics
+            k_sparsity = (dim_k.abs() < k_threshold).float().mean().item()
+            v_sparsity = (dim_v.abs() < v_threshold).float().mean().item()
+            k_mean = dim_k.abs().mean().item()
+            v_mean = dim_v.abs().mean().item()
+            k_std = dim_k.std().item()
+            v_std = dim_v.std().item()
+            
+            # Add to dimension statistics
+            dim_stats.append({
+                "layer": layer_idx,
+                "head": head_idx,
+                "dimension": dim,
+                "k_sparsity": k_sparsity,
+                "v_sparsity": v_sparsity,
+                "k_mean": k_mean,
+                "v_mean": v_mean,
+                "k_std": k_std,
+                "v_std": v_std,
+            })
 
-plt.tight_layout()
-plt.savefig("kv_value_distribution.png", dpi=300)
+# Create a dataframe with dimension statistics
+dim_df = pd.DataFrame(dim_stats)
 
-# ====================
-# Dimensionality Reduction
-# ====================
+# 1. Remove layer dimension sparsity graphs from head dimension analysis section
+for layer_idx in selected_layers:
+    layer_dim_df = dim_df[dim_df["layer"] == layer_idx]
 
-# Reshape the data for meaningful PCA analysis
-# We'll analyze how keys/values vary across different positions in the sequence
+# Identify prunable dimensions (high sparsity)
+prunable_dims_threshold = 0.2  # Try 20% instead of 70%
+prunable_dims = dim_df[(dim_df["k_sparsity"] > prunable_dims_threshold) | 
+                       (dim_df["v_sparsity"] > prunable_dims_threshold)]
 
-# Initialize position-based arrays
-position_keys = []
-position_values = []
-
-# For each position in the sequence
-for pos in range(seq_len):
-    # Extract features for this position across all layers and heads
-    pos_k_features = []
-    pos_v_features = []
-
-    for layer_idx, layer_kv in enumerate(kv_cache):
-        keys = layer_kv[0].detach().cpu()  # [batch_size, num_heads, seq_len, head_dim]
-        values = (
-            layer_kv[1].detach().cpu()
-        )  # [batch_size, num_heads, seq_len, head_dim]
-
-        # Extract all head dimensions for this position
-        for head in range(num_heads):
-            pos_k_features.extend(keys[0, head, pos].numpy())
-            pos_v_features.extend(values[0, head, pos].numpy())
-
-    # Add this position's features
-    position_keys.append(pos_k_features)
-    position_values.append(pos_v_features)
-
-# Convert to numpy arrays - shape becomes [seq_len, num_layers*num_heads*head_dim]
-position_keys = np.array(position_keys)
-position_values = np.array(position_values)
-
-# PCA Analysis
-pca = PCA(n_components=2)
-k_pca = pca.fit_transform(position_keys)
-v_pca = pca.fit_transform(position_values)
-
-# Plot PCA with positions highlighted
-plt.figure(figsize=(15, 6))
-
-plt.subplot(1, 2, 1)
-scatter = plt.scatter(
-    k_pca[:, 0], k_pca[:, 1], c=np.arange(seq_len), cmap="viridis", alpha=0.8, s=30
-)
-plt.colorbar(scatter, label="Position in sequence")
-plt.title("PCA of Keys by Position")
-plt.xlabel("Principal Component 1")
-plt.ylabel("Principal Component 2")
-
-plt.subplot(1, 2, 2)
-scatter = plt.scatter(
-    v_pca[:, 0], v_pca[:, 1], c=np.arange(seq_len), cmap="magma", alpha=0.8, s=30
-)
-plt.colorbar(scatter, label="Position in sequence")
-plt.title("PCA of Values by Position")
-plt.xlabel("Principal Component 1")
-plt.ylabel("Principal Component 2")
-
-plt.tight_layout()
-plt.savefig("kv_pca_by_position.png", dpi=300)
+if not prunable_dims.empty:
+    prunable_dims = prunable_dims.sort_values(by=["k_sparsity", "v_sparsity"], ascending=False)
+    print("\nTop 20 Potentially Prunable Dimensions (high sparsity):")
+    print(prunable_dims[["layer", "head", "dimension", "k_sparsity", "v_sparsity"]].head(20))
 
 # ====================
-# Head-level Analysis (Optional)
+# Across-Layer Head Consistency
 # ====================
 
-# Initialize head-based arrays for one selected layer
-layer_to_analyze = 0  # Change this to analyze different layers
-head_keys = []
-head_values = []
+# Calculate the consistency of head sparsity across layers
+head_consistency = []
 
-# Extract the selected layer
-layer_keys = kv_cache[layer_to_analyze][0].detach().cpu()  # [batch, heads, seq, dim]
-layer_values = kv_cache[layer_to_analyze][1].detach().cpu()
+for head_idx in range(num_heads):
+    # Get all layers for this head
+    head_layers = head_df[head_df["head"] == head_idx]
+    
+    # Calculate statistics
+    k_sparsity_mean = head_layers["k_sparsity"].mean()
+    k_sparsity_std = head_layers["k_sparsity"].std()
+    v_sparsity_mean = head_layers["v_sparsity"].mean()
+    v_sparsity_std = head_layers["v_sparsity"].std()
+    
+    # Get most and least sparse layers for this head
+    max_k_layer = head_layers.loc[head_layers["k_sparsity"].idxmax()]["layer"]
+    min_k_layer = head_layers.loc[head_layers["k_sparsity"].idxmin()]["layer"]
+    
+    head_consistency.append({
+        "head": head_idx,
+        "k_sparsity_mean": k_sparsity_mean,
+        "k_sparsity_std": k_sparsity_std,
+        "v_sparsity_mean": v_sparsity_mean,
+        "v_sparsity_std": v_sparsity_std,
+        "max_k_sparse_layer": max_k_layer,
+        "min_k_sparse_layer": min_k_layer
+    })
 
-# For each head
-for head in range(num_heads):
-    # Get all positions for this head
-    head_k = layer_keys[0, head].reshape(-1).numpy()  # Flatten seq_len × head_dim
-    head_v = layer_values[0, head].reshape(-1).numpy()
+# Create a dataframe for head consistency
+consistency_df = pd.DataFrame(head_consistency)
+print("\nHead Consistency Across Layers:")
+print(consistency_df.sort_values(by="k_sparsity_std"))
 
-    head_keys.append(head_k)
-    head_values.append(head_v)
+# ====================
+# Enhanced KV Cache Visualizations
+# ====================
 
-# Convert to numpy arrays
-head_keys = np.array(head_keys)
-head_values = np.array(head_values)
-
-# Visualize attention head patterns
-plt.figure(figsize=(15, 6))
-
-# Only proceed if we have enough heads for meaningful PCA
-if num_heads > 2:
-    pca = PCA(n_components=2)
-    head_k_pca = pca.fit_transform(head_keys)
-    head_v_pca = pca.fit_transform(head_values)
-
+def create_enhanced_visualizations():
+    print("Creating enhanced visualizations for dimension-based pruning analysis...")
+    
+    # 1. HEATMAP: Sparsity Across Layers and Heads
+    plt.figure(figsize=(12, 10))
+    
+    # Calculate head-level sparsity across all layers
+    head_sparsity_matrix = np.zeros((num_layers, num_heads))
+    for layer_idx in range(num_layers):
+        keys = all_keys[layer_idx].squeeze(0)  # [num_heads, seq_len, head_dim]
+        for head_idx in range(num_heads):
+            head_keys = keys[head_idx]  # [seq_len, head_dim]
+            head_sparsity_matrix[layer_idx, head_idx] = (head_keys.abs() < k_threshold).float().mean().item()
+    
+    # Plot the heatmap
+    sns.heatmap(head_sparsity_matrix, 
+                cmap="Blues", 
+                annot=True, 
+                fmt=".2f", 
+                xticklabels=range(num_heads),
+                yticklabels=range(num_layers))
+    plt.title("Pruning Potential: Sparsity by Layer and Head")
+    plt.xlabel("Attention Head")
+    plt.ylabel("Model Layer")
+    plt.tight_layout()
+    plt.savefig("pruning_heatmap_by_layer_head.png", dpi=300)
+    
+    # 2. BAR CHART: Layer-wise Pruning Potential
+    plt.figure(figsize=(12, 6))
+    
+    # Calculate per-layer sparsity
+    layer_sparsity_k = [layer["k_sparsity"] for layer in layer_stats]
+    layer_sparsity_v = [layer["v_sparsity"] for layer in layer_stats]
+    
+    x = np.arange(num_layers)
+    width = 0.35
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.bar(x - width/2, layer_sparsity_k, width, label='Key Sparsity')
+    ax.bar(x + width/2, layer_sparsity_v, width, label='Value Sparsity')
+    
+    ax.set_xlabel('Layer')
+    ax.set_ylabel('Pruning Potential (Sparsity)')
+    ax.set_title('Layer-wise Pruning Potential')
+    ax.set_xticks(x)
+    ax.set_xticklabels(range(num_layers))
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    
+    # Add a horizontal line for average sparsity
+    avg_k_sparsity = np.mean(layer_sparsity_k)
+    avg_v_sparsity = np.mean(layer_sparsity_v)
+    ax.axhline(y=avg_k_sparsity, color='blue', linestyle='--', alpha=0.7, 
+               label=f'Avg K Sparsity: {avg_k_sparsity:.3f}')
+    ax.axhline(y=avg_v_sparsity, color='orange', linestyle='--', alpha=0.7,
+               label=f'Avg V Sparsity: {avg_v_sparsity:.3f}')
+    
+    plt.tight_layout()
+    plt.savefig("layer_pruning_potential.png", dpi=300)
+    
+    # 3. GROUPED BAR CHART: Head-wise Pruning Potential
+    # Calculate average sparsity for each head across all layers
+    head_avg_sparsity = []
+    for head_idx in range(num_heads):
+        # Filter head stats for this head
+        head_data = [stats for stats in head_stats if stats["head"] == head_idx]
+        avg_k_sparsity = np.mean([h["k_sparsity"] for h in head_data])
+        avg_v_sparsity = np.mean([h["v_sparsity"] for h in head_data])
+        std_k_sparsity = np.std([h["k_sparsity"] for h in head_data])
+        
+        head_avg_sparsity.append({
+            "head": head_idx,
+            "avg_k_sparsity": avg_k_sparsity,
+            "avg_v_sparsity": avg_v_sparsity,
+            "std_k_sparsity": std_k_sparsity
+        })
+    
+    # Create the chart
+    plt.figure(figsize=(12, 6))
+    
+    x = np.arange(num_heads)
+    width = 0.35
+    
+    k_sparsity = [h["avg_k_sparsity"] for h in head_avg_sparsity]
+    v_sparsity = [h["avg_v_sparsity"] for h in head_avg_sparsity]
+    k_std = [h["std_k_sparsity"] for h in head_avg_sparsity]
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.bar(x - width/2, k_sparsity, width, label='Key Sparsity', yerr=k_std, capsize=5)
+    ax.bar(x + width/2, v_sparsity, width, label='Value Sparsity')
+    
+    ax.set_xlabel('Attention Head')
+    ax.set_ylabel('Average Pruning Potential (Sparsity)')
+    ax.set_title('Head-wise Pruning Potential (Averaged Across All Layers)')
+    ax.set_xticks(x)
+    ax.set_xticklabels(range(num_heads))
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig("head_pruning_potential.png", dpi=300)
+    
+    # 4. HISTOGRAM: Distribution of Weight Magnitudes
+    plt.figure(figsize=(12, 6))
+    
+    # Collect all key and value weights
+    all_key_weights = np.concatenate([k.reshape(-1).numpy() for k in all_keys])
+    all_value_weights = np.concatenate([v.reshape(-1).numpy() for v in all_values])
+    
     plt.subplot(1, 2, 1)
-    plt.scatter(
-        head_k_pca[:, 0],
-        head_k_pca[:, 1],
-        c=np.arange(num_heads),
-        cmap="viridis",
-        alpha=0.8,
-        s=50,
-    )
-    plt.title(f"Head Specialization - Layer {layer_to_analyze} Keys")
-    for i in range(num_heads):
-        plt.annotate(f"H{i}", (head_k_pca[i, 0], head_k_pca[i, 1]))
-
+    plt.hist(np.abs(all_key_weights), bins=50, alpha=0.7, color='blue')
+    plt.axvline(x=k_threshold, color='red', linestyle='--', 
+                label=f'Pruning Threshold: {k_threshold:.6f}')
+    plt.title('Key Weight Magnitude Distribution')
+    plt.xlabel('Absolute Magnitude')
+    plt.ylabel('Count')
+    plt.yscale('log')
+    plt.legend()
+    
     plt.subplot(1, 2, 2)
-    plt.scatter(
-        head_v_pca[:, 0],
-        head_v_pca[:, 1],
-        c=np.arange(num_heads),
-        cmap="magma",
-        alpha=0.8,
-        s=50,
-    )
-    plt.title(f"Head Specialization - Layer {layer_to_analyze} Values")
-    for i in range(num_heads):
-        plt.annotate(f"H{i}", (head_v_pca[i, 0], head_v_pca[i, 1]))
-else:
-    plt.text(
-        0.5,
-        0.5,
-        "Not enough heads for PCA visualization",
-        ha="center",
-        va="center",
-        fontsize=14,
-    )
+    plt.hist(np.abs(all_value_weights), bins=50, alpha=0.7, color='orange')
+    plt.axvline(x=v_threshold, color='red', linestyle='--', 
+                label=f'Pruning Threshold: {v_threshold:.6f}')
+    plt.title('Value Weight Magnitude Distribution')
+    plt.xlabel('Absolute Magnitude')
+    plt.ylabel('Count')
+    plt.yscale('log')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig("weight_magnitude_distribution.png", dpi=300)
+    
+    # 5. REMOVE: Pruning Efficiency Curve
+    # This section has been removed
+    
+    print(f"\nEnhanced visualizations created with model dimensions:")
+    print(f"- {num_layers} layers")
+    print(f"- {num_heads} heads per layer")
+    print(f"- {head_dim} dimensions per head")
+    print(f"- {seq_len} sequence length")
+    print(f"- Pruning threshold: {k_threshold:.6f} (1% of max weight)")
+    print("\nGraphs saved:")
+    print("1. pruning_heatmap_by_layer_head.png - Sparsity across layers and heads")
+    print("2. layer_pruning_potential.png - Pruning potential by layer")
+    print("3. head_pruning_potential.png - Pruning potential by attention head")
+    print("4. weight_magnitude_distribution.png - Distribution of weight magnitudes")
+    # Removed reference to pruning_efficiency_curve.png
 
-plt.tight_layout()
-plt.savefig("head_specialization.png", dpi=300)
-
-# ====================
-# Compressibility Analysis
-# ====================
-
-# Test simple quantization schemes
-bits_to_test = [16, 8, 4, 2]
-k_errors = []
-v_errors = []
-
-plt.figure(figsize=(15, 6))
-for i, bits in enumerate(bits_to_test):
-    # Calculate max and min for scaling
-    k_min, k_max = k_matrix.min(), k_matrix.max()
-    v_min, v_max = v_matrix.min(), v_matrix.max()
-
-    # Number of quantization levels
-    levels = 2**bits
-
-    # Quantize and dequantize
-    k_quantized = (
-        torch.round((k_matrix - k_min) / (k_max - k_min) * (levels - 1))
-        / (levels - 1)
-        * (k_max - k_min)
-        + k_min
-    )
-    v_quantized = (
-        torch.round((v_matrix - v_min) / (v_max - v_min) * (levels - 1))
-        / (levels - 1)
-        * (v_max - v_min)
-        + v_min
-    )
-
-    # Calculate error
-    k_error = torch.mean(torch.abs(k_matrix - k_quantized)).item()
-    v_error = torch.mean(torch.abs(v_matrix - v_quantized)).item()
-
-    k_errors.append(k_error)
-    v_errors.append(v_error)
-
-# Plot quantization results
-plt.plot(bits_to_test, k_errors, "b-o", label="Key Error")
-plt.plot(bits_to_test, v_errors, "r-o", label="Value Error")
-plt.title("Quantization Error vs Bit Precision")
-plt.xlabel("Bits")
-plt.ylabel("Mean Absolute Error")
-plt.xscale("log", base=2)
-plt.yscale("log")
-plt.grid(True)
-plt.legend()
-plt.savefig("kv_quantization_error.png", dpi=300)
+# Call the function to create enhanced visualizations
+create_enhanced_visualizations()
 
 # ====================
-# Summary of Findings
+# Summary and Recommendations
 # ====================
-print("\n=== KV Cache Analysis Summary ===")
-print(f"Total parameters analyzed: {k_matrix.shape[0]}")
-print(f"Overall Key Sparsity: {(k_matrix.abs() < 1e-5).float().mean():.4f}")
-print(f"Overall Value Sparsity: {(v_matrix.abs() < 1e-5).float().mean():.4f}")
-print(
-    f"Highest layer-wise key sparsity: {stats_df['k_sparsity'].max():.4f} at layer {stats_df['k_sparsity'].idxmax()}"
-)
-print(
-    f"Highest layer-wise value sparsity: {stats_df['v_sparsity'].max():.4f} at layer {stats_df['v_sparsity'].idxmax()}"
-)
-print(
-    f"Highest key-value correlation: {stats_df['kv_correlation'].max():.4f} at layer {stats_df['kv_correlation'].idxmax()}"
-)
 
-print("\n=== Optimization Opportunities ===")
-print(
-    f"1. Pruning potential: {(k_matrix.abs() < 1e-3).float().mean():.4f} of keys and {(v_matrix.abs() < 1e-3).float().mean():.4f} of values are near-zero"
-)
-print(
-    f"2. Quantization: {bits_to_test[np.argmin(k_errors)]}-bit precision for keys and {bits_to_test[np.argmin(v_errors)]}-bit for values"
-)
-print(f"3. Layer-specific optimizations: Focus on layers with highest sparsity")
-print(f"4. Position-based pruning: Later positions show more distinct patterns")
+# Find the most prunable layers, heads, and dimensions
+most_prunable_layers = layer_df.sort_values(by=["k_sparsity", "v_sparsity"], ascending=False).head(3)
+most_consistent_heads = consistency_df.sort_values(by=["k_sparsity_mean"], ascending=False).head(3)
+
+# Calculate overall sparsity
+overall_k_sparsity = np.mean([layer["k_sparsity"] for layer in layer_stats])
+overall_v_sparsity = np.mean([layer["v_sparsity"] for layer in layer_stats])
+
+print("\n=== KV Cache Optimization Summary ===")
+print(f"Overall Key Sparsity: {overall_k_sparsity:.4f}")
+print(f"Overall Value Sparsity: {overall_v_sparsity:.4f}")
+
+print("\n=== Dimension-wise Pruning Recommendations ===")
+print("Most Prunable Layers:")
+for _, row in most_prunable_layers.iterrows():
+    print(f"  Layer {int(row['layer'])}: Key Sparsity={row['k_sparsity']:.4f}, Value Sparsity={row['v_sparsity']:.4f}")
+
+print("\nMost Consistently Sparse Heads:")
+for _, row in most_consistent_heads.iterrows():
+    print(f"  Head {int(row['head'])}: Mean Key Sparsity={row['k_sparsity_mean']:.4f} ± {row['k_sparsity_std']:.4f}")
+
+if not prunable_dims.empty:
+    print("\nSpecific Pruning Targets:")
+    for _, row in prunable_dims.head(5).iterrows():
+        print(f"  Layer {int(row['layer'])}, Head {int(row['head'])}, Dimension {int(row['dimension'])}: " 
+              f"K-Sparsity={row['k_sparsity']:.4f}, V-Sparsity={row['v_sparsity']:.4f}")
+
+# Calculate total pruning potential
+total_params = num_layers * num_heads * head_dim * 2  # *2 for both keys and values
+prunable_params = len(prunable_dims) if not prunable_dims.empty else 0
+print(f"\nPruning Potential: {prunable_params}/{total_params} parameters ({prunable_params/total_params*100:.2f}%)")

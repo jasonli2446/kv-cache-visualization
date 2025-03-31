@@ -72,7 +72,13 @@ This project provides tools to analyze and visualize the Key-Value (KV) cache in
 
 3. **View Results**:
 
-   - The generated visualizations will be saved as PNG files in the project directory.
+   - The generated visualizations will be saved as PNG files in the project directory:
+     - `layer_statistics.png`: Comparison of sparsity, correlation, standard deviation, and mean values across layers
+     - `head_sparsity.png`: Heatmap of key/value sparsity by head and layer
+     - `pruning_heatmap_by_layer_head.png`: Detailed heatmap showing pruning potential by layer and head
+     - `layer_pruning_potential.png`: Bar chart of pruning potential per layer
+     - `head_pruning_potential.png`: Bar chart of pruning potential per attention head
+     - `weight_magnitude_distribution.png`: Histograms of key and value weight magnitudes
 
 4. **Interpret Results**:
    - Refer to [graph-explanations.md](graph-explanations.md) for detailed explanations of each visualization.
