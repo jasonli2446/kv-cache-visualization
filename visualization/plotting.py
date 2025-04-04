@@ -21,7 +21,8 @@ from visualization.common import plot_weight_magnitude_distribution, ensure_grap
 
 def plot_all_visualizations(layer_df, head_df, all_keys=None, all_values=None, k_threshold=None, v_threshold=None):
     """
-    Create all visualizations.
+    Create all basic visualizations (backward compatibility function).
+    Consider using the individual visualization functions directly for more control.
     
     Args:
         layer_df: DataFrame with layer statistics

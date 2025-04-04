@@ -127,3 +127,83 @@ def extract_kv_difference(kv_cache1, kv_cache2):
         "max_k_difference": max(k_differences),
         "max_v_difference": max(v_differences)
     }
+
+def compare_generation_stages(prefill_kv_cache, decoding_kv_cache_list, k_threshold=None, v_threshold=None):
+    """
+    Compare statistics between different generation stages.
+    
+    Args:
+        prefill_kv_cache: KV cache from prefill stage
+        decoding_kv_cache_list: List of KV caches from different decoding stages
+        k_threshold: Threshold for key sparsity
+        v_threshold: Threshold for value sparsity
+        
+    Returns:
+        DataFrame with comparative statistics
+    """
+    # Calculate thresholds if not provided
+    if k_threshold is None or v_threshold is None:
+        # Get max values across all caches
+        all_k_maxes = [max([layer_kv[0].abs().max().item() for layer_kv in kv_cache]) 
+                      for kv_cache in [prefill_kv_cache] + decoding_kv_cache_list]
+        all_v_maxes = [max([layer_kv[1].abs().max().item() for layer_kv in kv_cache])
+                      for kv_cache in [prefill_kv_cache] + decoding_kv_cache_list]
+        
+        global_k_max = max(all_k_maxes)
+        global_v_max = max(all_v_maxes)
+        
+        k_threshold = config.SPARSITY_THRESHOLD_PERCENTAGE / 100.0 * global_k_max
+        v_threshold = config.SPARSITY_THRESHOLD_PERCENTAGE / 100.0 * global_v_max
+    
+    # Need to import analysis functions here to avoid circular imports
+    from analysis.token_analysis import analyze_token_positions
+    
+    # Store comparison statistics
+    comparison_stats = []
+    
+    # Analyze prefill stage
+    prefill_token_df = analyze_token_positions(prefill_kv_cache, k_threshold, v_threshold)
+    prefill_avg_k_sparsity = prefill_token_df['avg_k_sparsity'].mean()
+    prefill_avg_v_sparsity = prefill_token_df['avg_v_sparsity'].mean()
+    
+    comparison_stats.append({
+        "stage": "prefill",
+        "avg_k_sparsity": prefill_avg_k_sparsity,
+        "avg_v_sparsity": prefill_avg_v_sparsity,
+        "new_tokens_k_sparsity": None,  # No new tokens in prefill
+        "new_tokens_v_sparsity": None
+    })
+    
+    # Analyze decoding stages
+    stage_names = ["early_decoding", "mid_decoding", "late_decoding"]
+    if len(decoding_kv_cache_list) != len(stage_names):
+        stage_names = [f"decoding_{i+1}" for i in range(len(decoding_kv_cache_list))]
+        
+    for i, (stage_name, decoding_kv_cache) in enumerate(zip(stage_names, decoding_kv_cache_list)):
+        decoding_token_df = analyze_token_positions(decoding_kv_cache, k_threshold, v_threshold)
+        decoding_avg_k_sparsity = decoding_token_df['avg_k_sparsity'].mean()
+        decoding_avg_v_sparsity = decoding_token_df['avg_v_sparsity'].mean()
+        
+        # Get statistics for newly generated tokens only
+        prefill_len = len(prefill_token_df)
+        if len(decoding_token_df) > prefill_len:
+            new_tokens_df = decoding_token_df.iloc[prefill_len:]
+            new_tokens_k_sparsity = new_tokens_df['avg_k_sparsity'].mean()
+            new_tokens_v_sparsity = new_tokens_df['avg_v_sparsity'].mean()
+        else:
+            new_tokens_k_sparsity = None
+            new_tokens_v_sparsity = None
+        
+        comparison_stats.append({
+            "stage": stage_name,
+            "avg_k_sparsity": decoding_avg_k_sparsity,
+            "avg_v_sparsity": decoding_avg_v_sparsity,
+            "new_tokens_k_sparsity": new_tokens_k_sparsity,
+            "new_tokens_v_sparsity": new_tokens_v_sparsity
+        })
+    
+    # Convert to dataframe
+    import pandas as pd
+    comparison_df = pd.DataFrame(comparison_stats)
+    
+    return comparison_df

@@ -1,2 +1,4 @@
 notes.md
 cuda-repo-rhel8-12-8-local-12.8.1_570.124.06-1.x86_64.rpm
+__pycache__/
+*.pyc

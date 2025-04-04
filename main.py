@@ -23,9 +23,12 @@ from pruning.pruner import KVCachePruner
 from pruning.evaluation import KVCacheEvaluator
 from utils.data_collection import extract_kv_cache, extract_model_info, prepare_kv_cache_data
 from utils.generation_stages import capture_generation_stages, compare_generation_stages
-from visualization.plotting import plot_all_visualizations
+# Import visualization functions directly
+from visualization.layer_plots import plot_layer_statistics, plot_layer_pruning_potential
+from visualization.head_plots import plot_head_sparsity, plot_head_pruning_potential, plot_head_layer_heatmap
 from visualization.token_plots import plot_token_sparsity_heatmap, plot_token_position_importance, plot_generation_stages_comparison
 from visualization.embedding_plots import plot_embedding_consistency, plot_embedding_importance_heatmap, plot_sparse_dense_embedding_patterns
+from visualization.common import plot_weight_magnitude_distribution
 import config
 
 def run_analysis(model, tokenizer, prompt, device):
@@ -100,10 +103,20 @@ def run_analysis(model, tokenizer, prompt, device):
     # Create visualizations
     print("\nGenerating visualizations...")
     
-    # Basic visualizations
-    plot_all_visualizations(
-        layer_df, 
-        head_df, 
+    # Layer-level visualizations
+    print("Generating layer-level visualizations...")
+    plot_layer_statistics(layer_df)
+    plot_layer_pruning_potential(layer_df)
+    
+    # Head-level visualizations
+    print("Generating head-level visualizations...")
+    plot_head_sparsity(head_df)
+    plot_head_pruning_potential(head_df)
+    plot_head_layer_heatmap(head_df)
+    
+    # Weight magnitude distributions
+    print("Generating weight magnitude distributions...")
+    plot_weight_magnitude_distribution(
         data["all_keys"], 
         data["all_values"],
         data["k_threshold"],
