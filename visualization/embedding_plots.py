@@ -23,17 +23,15 @@ def plot_embedding_consistency(embedding_df):
     """
     plt.figure(figsize=(14, 10))
     
-    # Sort embeddings by descending key sparsity
-    sorted_df = embedding_df.sort_values("k_sparsity", ascending=False).reset_index(drop=True)
-    
+    # Don't sort, use original dimension order
     # Create subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
     
     # Plot key sparsity across embedding dimensions
-    ax1.bar(range(len(sorted_df)), sorted_df["k_sparsity"], color="blue", alpha=0.7)
+    ax1.bar(range(len(embedding_df)), embedding_df["k_sparsity"], color="blue", alpha=0.7)
     ax1.set_title("Key Sparsity Across Embedding Dimensions")
     ax1.set_ylabel("Sparsity Ratio")
-    ax1.set_xlabel("Embedding Dimensions (Sorted by Sparsity)")
+    ax1.set_xlabel("Embedding Dimension Index")
     
     # Add reference lines
     ax1.axhline(y=0.8, color="red", linestyle="--", alpha=0.7, 
@@ -43,7 +41,7 @@ def plot_embedding_consistency(embedding_df):
     ax1.legend()
     
     # Add dimension numbers for highly sparse/dense dimensions
-    for i, row in sorted_df.iterrows():
+    for i, row in embedding_df.iterrows():
         if row["k_sparsity"] > 0.8 or row["k_sparsity"] < 0.2:
             ax1.annotate(f"Dim {int(row['dimension'])}", 
                       (i, row["k_sparsity"]),
@@ -54,11 +52,10 @@ def plot_embedding_consistency(embedding_df):
                       rotation=90)
     
     # Plot value sparsity across embedding dimensions
-    v_sorted_df = embedding_df.sort_values("v_sparsity", ascending=False).reset_index(drop=True)
-    ax2.bar(range(len(v_sorted_df)), v_sorted_df["v_sparsity"], color="orange", alpha=0.7)
+    ax2.bar(range(len(embedding_df)), embedding_df["v_sparsity"], color="orange", alpha=0.7)
     ax2.set_title("Value Sparsity Across Embedding Dimensions")
     ax2.set_ylabel("Sparsity Ratio")
-    ax2.set_xlabel("Embedding Dimensions (Sorted by Sparsity)")
+    ax2.set_xlabel("Embedding Dimension Index")
     
     # Add reference lines
     ax2.axhline(y=0.8, color="red", linestyle="--", alpha=0.7, 
@@ -68,7 +65,7 @@ def plot_embedding_consistency(embedding_df):
     ax2.legend()
     
     # Add dimension numbers for highly sparse/dense dimensions
-    for i, row in v_sorted_df.iterrows():
+    for i, row in embedding_df.iterrows():
         if row["v_sparsity"] > 0.8 or row["v_sparsity"] < 0.2:
             ax2.annotate(f"Dim {int(row['dimension'])}", 
                       (i, row["v_sparsity"]),
@@ -84,53 +81,6 @@ def plot_embedding_consistency(embedding_df):
     os.makedirs("graphs/embeddings", exist_ok=True)
     
     plt.savefig("graphs/embeddings/embedding_consistency.png", dpi=config.FIGURE_DPI)
-    plt.close()
-
-def plot_embedding_importance_heatmap(embedding_importance_results):
-    """
-    Plot heatmap of embedding importance across layers.
-    
-    Args:
-        embedding_importance_results: Dict with embedding importance analysis
-    """
-    k_importance_matrix = embedding_importance_results["k_importance_matrix"]
-    v_importance_matrix = embedding_importance_results["v_importance_matrix"]
-    dim_summary = embedding_importance_results["dim_summary"]
-    
-    num_layers, head_dim = k_importance_matrix.shape
-    
-    # Create a figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 16))
-    
-    # Sort dimensions by overall importance for better visualization
-    top_dims = dim_summary["dimension"].values
-    
-    # Reorder matrices by dimension importance
-    k_reordered = np.zeros_like(k_importance_matrix)
-    v_reordered = np.zeros_like(v_importance_matrix)
-    
-    for i, dim in enumerate(top_dims):
-        k_reordered[:, i] = k_importance_matrix[:, dim]
-        v_reordered[:, i] = v_importance_matrix[:, dim]
-    
-    # Plot key importance heatmap
-    sns.heatmap(k_reordered, cmap="viridis", ax=ax1, cbar_kws={"label": "Importance (1-Sparsity)"})
-    ax1.set_title("Key Dimension Importance Across Layers")
-    ax1.set_ylabel("Layer")
-    ax1.set_xlabel("Embedding Dimensions (Ordered by Overall Importance)")
-    
-    # Plot value importance heatmap
-    sns.heatmap(v_reordered, cmap="viridis", ax=ax2, cbar_kws={"label": "Importance (1-Sparsity)"})
-    ax2.set_title("Value Dimension Importance Across Layers")
-    ax2.set_ylabel("Layer")
-    ax2.set_xlabel("Embedding Dimensions (Ordered by Overall Importance)")
-    
-    plt.tight_layout()
-    
-    # Create directory if it doesn't exist
-    os.makedirs("graphs/embeddings", exist_ok=True)
-    
-    plt.savefig("graphs/embeddings/embedding_importance_heatmap.png", dpi=config.FIGURE_DPI)
     plt.close()
 
 def plot_sparse_dense_embedding_patterns(embedding_pattern_results, top_k=5):

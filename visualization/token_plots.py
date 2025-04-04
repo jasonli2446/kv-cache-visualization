@@ -15,40 +15,6 @@ import matplotlib.ticker as ticker
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
-def plot_token_sparsity_heatmap(k_sparsity_matrix, v_sparsity_matrix):
-    """
-    Plot heatmap of token sparsity across layers.
-    
-    Args:
-        k_sparsity_matrix: Key sparsity matrix [num_layers, seq_len]
-        v_sparsity_matrix: Value sparsity matrix [num_layers, seq_len]
-    """
-    num_layers, seq_len = k_sparsity_matrix.shape
-    
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 16))
-    
-    # Plot key sparsity heatmap
-    sns.heatmap(k_sparsity_matrix, cmap="Blues", annot=True, fmt=".2f", ax=ax1,
-               xticklabels=range(seq_len), yticklabels=range(num_layers))
-    ax1.set_title("Key Sparsity Across Token Positions")
-    ax1.set_xlabel("Token Position")
-    ax1.set_ylabel("Layer")
-    
-    # Plot value sparsity heatmap
-    sns.heatmap(v_sparsity_matrix, cmap="Blues", annot=True, fmt=".2f", ax=ax2,
-               xticklabels=range(seq_len), yticklabels=range(num_layers))
-    ax2.set_title("Value Sparsity Across Token Positions")
-    ax2.set_xlabel("Token Position")
-    ax2.set_ylabel("Layer")
-    
-    plt.tight_layout()
-    
-    # Create directory if it doesn't exist
-    os.makedirs("graphs/tokens", exist_ok=True)
-    
-    plt.savefig("graphs/tokens/token_sparsity_heatmap.png", dpi=config.FIGURE_DPI)
-    plt.close()
-
 def plot_token_position_importance(token_importance_df, input_text=None, tokenizer=None):
     """
     Plot importance scores for each token position.
@@ -63,39 +29,23 @@ def plot_token_position_importance(token_importance_df, input_text=None, tokeniz
     # Sort by token position for sequential display
     sorted_df = token_importance_df.sort_values("token_position")
     
-    # Create x-axis labels
-    x_labels = list(range(len(sorted_df)))
-    if input_text and tokenizer:
-        # If we have the input text and tokenizer, decode tokens for labels
-        tokens = tokenizer.encode(input_text)
-        token_texts = [tokenizer.decode([token]) for token in tokens]
-        if len(token_texts) == len(sorted_df):
-            x_labels = token_texts
+    # Calculate position as percentage
+    total_tokens = len(sorted_df)
+    position_percentages = [(pos / total_tokens) * 100 for pos in range(total_tokens)]
     
     # Plot importance scores
-    plt.bar(range(len(sorted_df)), sorted_df["importance_score"], color="teal", alpha=0.7)
-    plt.xlabel("Token Position")
+    plt.bar(position_percentages, sorted_df["importance_score"], color="teal", alpha=0.7)
+    plt.xlabel("Token Position (% of sequence)")
     plt.ylabel("Importance Score")
-    plt.title("Relative Importance of Each Token Position")
-    
-    # Set x-labels
-    if len(x_labels) <= 20:
-        # Show all labels if there are few tokens
-        plt.xticks(range(len(sorted_df)), x_labels, rotation=45, ha="right")
-    else:
-        # Show some labels if there are many tokens
-        step = max(1, len(x_labels) // 10)
-        plt.xticks(range(0, len(sorted_df), step), 
-                   [x_labels[i] for i in range(0, len(sorted_df), step)],
-                   rotation=45, ha="right")
+    plt.title("Relative Importance of Each Token Position\n(Based on key/value norms and attention energy)")
     
     # Add horizontal grid lines
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     
-    # Add component contributions
-    plt.plot(range(len(sorted_df)), sorted_df["avg_k_norm_normalized"], "b--", 
+    # Add component contributions as line plots
+    plt.plot(position_percentages, sorted_df["avg_k_norm_normalized"], "b--", 
             label="Key Norm (normalized)", alpha=0.5)
-    plt.plot(range(len(sorted_df)), sorted_df["avg_v_norm_normalized"], "r--", 
+    plt.plot(position_percentages, sorted_df["avg_v_norm_normalized"], "r--", 
             label="Value Norm (normalized)", alpha=0.5)
     
     plt.legend()

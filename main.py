@@ -26,8 +26,8 @@ from utils.generation_stages import capture_generation_stages, compare_generatio
 # Import visualization functions directly
 from visualization.layer_plots import plot_layer_statistics, plot_layer_pruning_potential
 from visualization.head_plots import plot_head_sparsity, plot_head_pruning_potential, plot_head_layer_heatmap
-from visualization.token_plots import plot_token_sparsity_heatmap, plot_token_position_importance, plot_generation_stages_comparison
-from visualization.embedding_plots import plot_embedding_consistency, plot_embedding_importance_heatmap, plot_sparse_dense_embedding_patterns
+from visualization.token_plots import plot_token_position_importance, plot_generation_stages_comparison
+from visualization.embedding_plots import plot_embedding_consistency, plot_sparse_dense_embedding_patterns
 from visualization.common import plot_weight_magnitude_distribution
 import config
 
@@ -125,14 +125,12 @@ def run_analysis(model, tokenizer, prompt, device):
     
     # Token-level visualizations
     print("Generating token-level visualizations...")
-    plot_token_sparsity_heatmap(k_sparsity_matrix, v_sparsity_matrix)
     plot_token_position_importance(token_importance_df, prompt, tokenizer)
     plot_generation_stages_comparison(gen_comparison, gen_results["generated_text"])
     
     # Embedding-level visualizations
     print("Generating embedding-level visualizations...")
     plot_embedding_consistency(embedding_df)
-    plot_embedding_importance_heatmap(embedding_importance_results)
     plot_sparse_dense_embedding_patterns(embedding_pattern_results)
     
     # Print key findings
@@ -313,9 +311,8 @@ def main():
     elif args.mode == "analyze_generation":
         # Run generation stage analysis
         gen_analysis = run_generation_stage_analysis(model, tokenizer, args.prompt, device)
-    '''
-
-         elif args.mode == "prune":
+        
+    elif args.mode == "prune":
         # Parse pruning parameters
         layer_indices = [int(i) for i in args.prune_layers.split(",")] if args.prune_layers else None
         head_indices = [int(i) for i in args.prune_heads.split(",")] if args.prune_heads else None
@@ -330,8 +327,6 @@ def main():
             layer_indices=layer_indices,
             head_indices=head_indices
         )
-    '''   
-
     
     print("\nDone!")
 
