@@ -18,9 +18,14 @@ HEATMAP_FIGSIZE = (14, 10)
 BAR_CHART_FIGSIZE = (14, 6)
 
 # Sample text for generation and evaluation
-SAMPLE_PROMPT = "The history of artificial intelligence began in ancient times with myths and stories about artificial beings."
+SAMPLE_PROMPT = None  # This will be dynamically loaded from WikiText if USE_WIKITEXT is True
 SAMPLE_CONTINUATION = "The seeds of modern AI were planted by classical philosophers who attempted to describe human thinking as a symbolic system."
 
 # Pruning configuration
 PRUNE_METHODS = ["layer", "head", "dimension", "threshold"]
 DEFAULT_PRUNE_METHOD = "layer"
+
+# Dataset configuration
+USE_WIKITEXT = True
+WIKITEXT_INDEX = 0  # Which sample to use (0-4)
+WIKITEXT_MAX_LENGTH = 1000  # Maximum length for WikiText sample

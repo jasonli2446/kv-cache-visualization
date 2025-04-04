@@ -23,6 +23,7 @@ from pruning.pruner import KVCachePruner
 from pruning.evaluation import KVCacheEvaluator
 from utils.data_collection import extract_kv_cache, extract_model_info, prepare_kv_cache_data
 from utils.generation_stages import capture_generation_stages, compare_generation_stages
+from utils.dataset_loaders import get_wikitext_prompt, prepare_input_for_model
 # Import visualization functions directly
 from visualization.layer_plots import plot_layer_statistics, plot_layer_pruning_potential
 from visualization.head_plots import plot_head_sparsity, plot_head_pruning_potential, plot_head_layer_heatmap
@@ -265,8 +266,8 @@ def run_generation_stage_analysis(model, tokenizer, prompt, device):
 
 def main():
     parser = argparse.ArgumentParser(description="KV Cache Analysis and Pruning")
-    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation"], default="analyze",
-                        help="Run analysis, pruning simulation, or generation analysis")
+    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation", "list_samples"], default="analyze",
+                        help="Run analysis, pruning simulation, generation analysis, or list available samples")
     parser.add_argument("--model", default=config.DEFAULT_MODEL, 
                         help="Model to analyze")
     parser.add_argument("--prune_layers", type=str, default="",
@@ -276,8 +277,12 @@ def main():
     parser.add_argument("--prune_method", choices=config.PRUNE_METHODS, 
                         default=config.DEFAULT_PRUNE_METHOD,
                         help="Method for pruning")
-    parser.add_argument("--prompt", type=str, default=config.SAMPLE_PROMPT,
-                        help="Prompt text for analysis/pruning")
+    parser.add_argument("--prompt", type=str, default=None,
+                        help="Prompt text for analysis/pruning (overrides WikiText if provided)")
+    parser.add_argument("--use_wikitext", action="store_true", default=config.USE_WIKITEXT,
+                        help="Use WikiText dataset as input instead of sample prompt")
+    parser.add_argument("--wikitext_index", type=int, default=config.WIKITEXT_INDEX,
+                        help="Index of WikiText sample to use (0-4)")
     parser.add_argument("--continuation", type=str, default=config.SAMPLE_CONTINUATION,
                         help="Continuation text for evaluation")
     parser.add_argument("--analysis_focus", 
@@ -285,6 +290,14 @@ def main():
                         default="all",
                         help="Focus analysis on specific aspects")
     args = parser.parse_args()
+    
+    # Determine the input prompt
+    prompt = args.prompt
+    if prompt is None and args.use_wikitext:
+        print("Loading WikiText sample...")
+        prompt = get_wikitext_prompt(args.wikitext_index)
+    elif prompt is None:
+        prompt = config.SAMPLE_PROMPT
     
     # Check for CUDA
     device_name = config.DEFAULT_DEVICE
@@ -304,9 +317,11 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(args.model).to(device)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     
+    prompt = prepare_input_for_model(prompt, tokenizer, args.model)
+    
     if args.mode == "analyze":
         # Run analysis pipeline
-        analysis_results = run_analysis(model, tokenizer, args.prompt, device)
+        analysis_results = run_analysis(model, tokenizer, prompt, device)
         
     elif args.mode == "analyze_generation":
         # Run generation stage analysis
@@ -327,6 +342,10 @@ def main():
             layer_indices=layer_indices,
             head_indices=head_indices
         )
+    
+    elif args.mode == "list_samples":
+        from utils.dataset_loaders import print_wikitext_samples
+        samples = print_wikitext_samples()
     
     print("\nDone!")
 
