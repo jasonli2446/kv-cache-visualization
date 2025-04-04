@@ -14,11 +14,18 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # Import from our modules
 from analysis.layer_analysis import analyze_layers, find_prunable_layers
 from analysis.head_analysis import analyze_heads, find_prunable_heads, analyze_head_consistency
-from analysis.dimension_analysis import analyze_dimensions, find_prunable_dimensions
+from analysis.token_analysis import analyze_token_positions, analyze_token_layer_patterns, calculate_token_importance
+from analysis.embedding_analysis import (
+    analyze_embedding_dimensions, analyze_embedding_importance_by_layer, 
+    identify_embedding_patterns, analyze_dimensions, find_prunable_dimensions
+)
 from pruning.pruner import KVCachePruner
 from pruning.evaluation import KVCacheEvaluator
 from utils.data_collection import extract_kv_cache, extract_model_info, prepare_kv_cache_data
+from utils.generation_stages import capture_generation_stages, compare_generation_stages
 from visualization.plotting import plot_all_visualizations
+from visualization.token_plots import plot_token_sparsity_heatmap, plot_token_position_importance, plot_generation_stages_comparison
+from visualization.embedding_plots import plot_embedding_consistency, plot_embedding_importance_heatmap, plot_sparse_dense_embedding_patterns
 import config
 
 def run_analysis(model, tokenizer, prompt, device):
@@ -37,7 +44,7 @@ def run_analysis(model, tokenizer, prompt, device):
     # Prepare data
     data = prepare_kv_cache_data(kv_cache)
     
-    # Run analyses
+    # Run standard analyses
     print("\nRunning layer analysis...")
     layer_df = analyze_layers(kv_cache, data["k_threshold"], data["v_threshold"])
     
@@ -50,6 +57,41 @@ def run_analysis(model, tokenizer, prompt, device):
     print("Running head consistency analysis...")
     consistency_df = analyze_head_consistency(head_df)
     
+    # Run new token-level analyses
+    print("\nRunning token position analysis...")
+    token_df = analyze_token_positions(kv_cache, data["k_threshold"], data["v_threshold"])
+    
+    print("Running token-layer pattern analysis...")
+    k_sparsity_matrix, v_sparsity_matrix = analyze_token_layer_patterns(kv_cache, 
+                                                                       data["k_threshold"], 
+                                                                       data["v_threshold"])
+    
+    print("Calculating token importance...")
+    token_importance_df = calculate_token_importance(kv_cache)
+    
+    # Run new embedding-level analyses
+    print("\nRunning embedding dimension analysis...")
+    embedding_df = analyze_embedding_dimensions(kv_cache, data["k_threshold"], data["v_threshold"])
+    
+    print("Running embedding importance analysis...")
+    embedding_importance_results = analyze_embedding_importance_by_layer(kv_cache, 
+                                                                       data["k_threshold"], 
+                                                                       data["v_threshold"])
+    
+    print("Identifying embedding patterns...")
+    embedding_pattern_results = identify_embedding_patterns(kv_cache, 
+                                                          data["k_threshold"], 
+                                                          data["v_threshold"])
+    
+    # Run analysis across generation stages
+    print("\nAnalyzing generation stages...")
+    gen_results = capture_generation_stages(model, tokenizer, prompt[:50], gen_tokens=20, device=device)
+    gen_stages = gen_results["kv_caches"]
+    gen_comparison = compare_generation_stages(gen_stages["prefill"], 
+                                             [gen_stages["early_decoding"], 
+                                              gen_stages["mid_decoding"], 
+                                              gen_stages["late_decoding"]])
+    
     # Find prunable components
     prunable_layers = find_prunable_layers(layer_df)
     prunable_heads = find_prunable_heads(head_df)
@@ -57,6 +99,8 @@ def run_analysis(model, tokenizer, prompt, device):
     
     # Create visualizations
     print("\nGenerating visualizations...")
+    
+    # Basic visualizations
     plot_all_visualizations(
         layer_df, 
         head_df, 
@@ -65,6 +109,18 @@ def run_analysis(model, tokenizer, prompt, device):
         data["k_threshold"],
         data["v_threshold"]
     )
+    
+    # Token-level visualizations
+    print("Generating token-level visualizations...")
+    plot_token_sparsity_heatmap(k_sparsity_matrix, v_sparsity_matrix)
+    plot_token_position_importance(token_importance_df, prompt, tokenizer)
+    plot_generation_stages_comparison(gen_comparison, gen_results["generated_text"])
+    
+    # Embedding-level visualizations
+    print("Generating embedding-level visualizations...")
+    plot_embedding_consistency(embedding_df)
+    plot_embedding_importance_heatmap(embedding_importance_results)
+    plot_sparse_dense_embedding_patterns(embedding_pattern_results)
     
     # Print key findings
     print("\n=== KV Cache Analysis Summary ===")
@@ -81,11 +137,26 @@ def run_analysis(model, tokenizer, prompt, device):
     for _, row in top_heads.iterrows():
         print(f"  Head {int(row['head'])}: Mean Key Sparsity={row['k_sparsity_mean']:.4f} ± {row['k_sparsity_std']:.4f}")
     
-    if not prunable_dims.empty:
-        print("\nTop 5 Specific Pruning Targets:")
-        for _, row in prunable_dims.head(5).iterrows():
-            print(f"  Layer {int(row['layer'])}, Head {int(row['head'])}, Dimension {int(row['dimension'])}: " 
-                f"K-Sparsity={row['k_sparsity']:.4f}, V-Sparsity={row['v_sparsity']:.4f}")
+    # Print token-level findings
+    print("\nMost Important Token Positions:")
+    for _, row in token_importance_df.head(3).iterrows():
+        token_text = ""
+        try:
+            token_text = f" ('{tokenizer.decode([tokenizer.encode(prompt)[row['token_position']]])}')"
+        except:
+            pass
+        print(f"  Position {int(row['token_position'])}{token_text}: Importance={row['importance_score']:.4f}")
+    
+    # Print embedding-level findings
+    print("\nConsistently Sparse Embedding Dimensions:")
+    top_sparse_dims = embedding_df.sort_values(by="k_sparsity", ascending=False).head(3)
+    for _, row in top_sparse_dims.iterrows():
+        print(f"  Dimension {int(row['dimension'])}: K-Sparsity={row['k_sparsity']:.4f}, V-Sparsity={row['v_sparsity']:.4f}")
+    
+    # Print generation stage comparison
+    print("\nSparsity Across Generation Stages:")
+    for _, row in gen_comparison.iterrows():
+        print(f"  {row['stage']}: K-Sparsity={row['avg_k_sparsity']:.4f}, V-Sparsity={row['avg_v_sparsity']:.4f}")
     
     # Calculate pruning potential
     num_layers = data["num_layers"]
@@ -101,77 +172,90 @@ def run_analysis(model, tokenizer, prompt, device):
         "head_df": head_df,
         "dim_df": dim_df,
         "consistency_df": consistency_df,
+        "token_df": token_df,
+        "token_importance_df": token_importance_df,
+        "embedding_df": embedding_df,
+        "embedding_importance_results": embedding_importance_results,
+        "embedding_pattern_results": embedding_pattern_results,
+        "generation_stages": gen_stages,
+        "generation_comparison": gen_comparison,
         "prunable_layers": prunable_layers,
         "prunable_heads": prunable_heads,
         "prunable_dims": prunable_dims,
         "data": data
     }
 
-def run_pruning_simulation(model, tokenizer, prompt, continuation, device, 
-                          layer_indices=None, head_indices=None, dim_indices=None):
-    """Run pruning simulation on the model."""
-    print(f"\n=== Running Pruning Simulation ===")
+def run_generation_stage_analysis(model, tokenizer, prompt, device):
+    """Run generation stage analysis pipeline."""
+    print(f"Running generation stage analysis on prompt: '{prompt[:50]}...'")
     
-    # Initialize pruner
-    pruner = KVCachePruner(model, tokenizer, device)
-    evaluator = KVCacheEvaluator(model, tokenizer, device)
-    
-    # Generate KV cache from prompt
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    with torch.no_grad():
-        outputs = model(**inputs, use_cache=True)
-        past_key_values = outputs.past_key_values
-    
-    # Create pruning masks
-    pruning_masks = pruner.create_pruning_mask(layer_indices, head_indices, dim_indices)
-    
-    # Apply pruning masks
-    pruned_kv_cache = pruner.apply_pruning_masks(past_key_values, pruning_masks)
-    
-    # Calculate sparsity
-    original_k_sparsity, original_v_sparsity = pruner.calculate_sparsity(past_key_values)
-    pruned_k_sparsity, pruned_v_sparsity = pruner.calculate_sparsity(pruned_kv_cache)
-    
-    print(f"Original KV cache - Key sparsity: {original_k_sparsity:.2f}%, Value sparsity: {original_v_sparsity:.2f}%")
-    print(f"Pruned KV cache - Key sparsity: {pruned_k_sparsity:.2f}%, Value sparsity: {pruned_v_sparsity:.2f}%")
-    
-    # Evaluate performance
-    pruning_info = {
-        "pruned_layers": layer_indices,
-        "pruned_heads": head_indices,
-        "pruned_dims": dim_indices
-    }
-    
-    results = evaluator.evaluate_pruning(
-        prompt=prompt,
-        continuation=continuation,
-        past_key_values=pruned_kv_cache,
-        pruning_info=pruning_info
+    # Capture KV cache at different generation stages
+    gen_results = capture_generation_stages(
+        model, 
+        tokenizer, 
+        prompt, 
+        gen_tokens=30, 
+        device=device
     )
     
-    # Print results
-    print("\n=== Pruning Simulation Results ===")
-    print(f"Baseline Perplexity: {results['baseline_perplexity']:.4f}")
-    print(f"Pruned Perplexity: {results['pruned_perplexity']:.4f}")
-    print(f"Perplexity Change: {results['perplexity_change_percent']:.2f}%")
-    print(f"Baseline Latency: {results['baseline_latency_ms']:.2f} ms")
-    print(f"Pruned Latency: {results['pruned_latency_ms']:.2f} ms")
-    print(f"Latency Change: {results['latency_change_percent']:.2f}%")
+    # Extract KV caches from different stages
+    prefill_kv = gen_results["kv_caches"]["prefill"]
+    early_kv = gen_results["kv_caches"]["early_decoding"]
+    mid_kv = gen_results["kv_caches"]["mid_decoding"]
+    late_kv = gen_results["kv_caches"]["late_decoding"]
     
-    # Print pruning details
-    if layer_indices:
-        print(f"Pruned layers: {layer_indices}")
-    if head_indices:
-        print(f"Pruned heads: {head_indices}")
-    if dim_indices:
-        print(f"Pruned dimensions: {len(dim_indices) if dim_indices else 0}")
+    # Calculate thresholds for consistency across stages
+    all_kv_caches = [prefill_kv, early_kv, mid_kv, late_kv]
+    all_k_maxes = [max([layer_kv[0].abs().max().item() for layer_kv in kv]) 
+                  for kv in all_kv_caches]
+    all_v_maxes = [max([layer_kv[1].abs().max().item() for layer_kv in kv])
+                  for kv in all_kv_caches]
     
-    return results
+    global_k_max = max(all_k_maxes)
+    global_v_max = max(all_v_maxes)
+    
+    k_threshold = config.SPARSITY_THRESHOLD_PERCENTAGE / 100.0 * global_k_max
+    v_threshold = config.SPARSITY_THRESHOLD_PERCENTAGE / 100.0 * global_v_max
+    
+    # Compare sparsity patterns across stages
+    stage_comparison = compare_generation_stages(
+        prefill_kv,
+        [early_kv, mid_kv, late_kv],
+        k_threshold,
+        v_threshold
+    )
+    
+    # Create visualizations
+    print("\nGenerating visualizations...")
+    plot_generation_stages_comparison(
+        stage_comparison, 
+        gen_results["generated_text"]
+    )
+    
+    # Print findings
+    print("\n=== Generation Stages Analysis ===")
+    print(f"Generated text: {gen_results['generated_text']}")
+    print(f"Original input length: {gen_results['input_length']}")
+    
+    print("\nSparsity Across Generation Stages:")
+    for _, row in stage_comparison.iterrows():
+        new_tokens_info = ""
+        if not pd.isna(row.get("new_tokens_k_sparsity", pd.NA)):
+            new_tokens_info = f" (New tokens only: K={row['new_tokens_k_sparsity']:.4f}, V={row['new_tokens_v_sparsity']:.4f})"
+        print(f"  {row['stage']}: K-Sparsity={row['avg_k_sparsity']:.4f}, V-Sparsity={row['avg_v_sparsity']:.4f}{new_tokens_info}")
+    
+    return {
+        "generation_stages": gen_results["kv_caches"],
+        "stage_comparison": stage_comparison,
+        "generated_text": gen_results["generated_text"],
+        "input_length": gen_results["input_length"],
+        "generated_tokens": gen_results["generated_tokens"]
+    }
 
 def main():
     parser = argparse.ArgumentParser(description="KV Cache Analysis and Pruning")
-    parser.add_argument("--mode", choices=["analyze", "prune"], default="analyze",
-                        help="Run analysis or pruning simulation")
+    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation"], default="analyze",
+                        help="Run analysis, pruning simulation, or generation analysis")
     parser.add_argument("--model", default=config.DEFAULT_MODEL, 
                         help="Model to analyze")
     parser.add_argument("--prune_layers", type=str, default="",
@@ -185,6 +269,10 @@ def main():
                         help="Prompt text for analysis/pruning")
     parser.add_argument("--continuation", type=str, default=config.SAMPLE_CONTINUATION,
                         help="Continuation text for evaluation")
+    parser.add_argument("--analysis_focus", 
+                        choices=["all", "layers", "heads", "tokens", "embeddings"], 
+                        default="all",
+                        help="Focus analysis on specific aspects")
     args = parser.parse_args()
     
     # Check for CUDA
@@ -209,7 +297,12 @@ def main():
         # Run analysis pipeline
         analysis_results = run_analysis(model, tokenizer, args.prompt, device)
         
-    elif args.mode == "prune":
+    elif args.mode == "analyze_generation":
+        # Run generation stage analysis
+        gen_analysis = run_generation_stage_analysis(model, tokenizer, args.prompt, device)
+    '''
+
+         elif args.mode == "prune":
         # Parse pruning parameters
         layer_indices = [int(i) for i in args.prune_layers.split(",")] if args.prune_layers else None
         head_indices = [int(i) for i in args.prune_heads.split(",")] if args.prune_heads else None
@@ -224,6 +317,8 @@ def main():
             layer_indices=layer_indices,
             head_indices=head_indices
         )
+    '''   
+
     
     print("\nDone!")
 
