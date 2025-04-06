@@ -12,24 +12,26 @@ import time
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Import from our modules
-from analysis.layer_analysis import analyze_layers, find_prunable_layers
-from analysis.head_analysis import analyze_heads, find_prunable_heads, analyze_head_consistency
-from analysis.token_analysis import analyze_token_positions, analyze_token_layer_patterns, calculate_token_importance
-from analysis.embedding_analysis import (
+from analysis import (
+    analyze_layers, find_prunable_layers,
+    analyze_heads, find_prunable_heads, analyze_head_consistency,
+    analyze_token_positions, analyze_token_layer_patterns, calculate_token_importance,
     analyze_embedding_dimensions, analyze_embedding_importance_by_layer, 
     identify_embedding_patterns, analyze_dimensions, find_prunable_dimensions
 )
-from pruning.pruner import KVCachePruner
-from pruning.evaluation import KVCacheEvaluator
-from utils.data_collection import extract_kv_cache, extract_model_info, prepare_kv_cache_data
-from utils.generation_stages import capture_generation_stages, compare_generation_stages
-from utils.dataset_loaders import get_wikitext_prompt, prepare_input_for_model
-# Import visualization functions directly
-from visualization.layer_plots import plot_layer_statistics, plot_layer_pruning_potential
-from visualization.head_plots import plot_head_sparsity, plot_head_pruning_potential, plot_head_layer_heatmap
-from visualization.token_plots import plot_token_position_importance, plot_generation_stages_comparison
-from visualization.embedding_plots import plot_embedding_consistency, plot_sparse_dense_embedding_patterns
-from visualization.common import plot_weight_magnitude_distribution
+from pruning import KVCachePruner, KVCacheEvaluator
+from utils import (
+    extract_kv_cache, extract_model_info, prepare_kv_cache_data,
+    capture_generation_stages, compare_generation_stages,
+    get_wikitext_prompt, prepare_input_for_model
+)
+from visualization import (
+    plot_layer_statistics, plot_layer_pruning_potential,
+    plot_head_sparsity, plot_head_pruning_potential, plot_head_layer_heatmap,
+    plot_token_position_importance, plot_generation_stages_comparison,
+    plot_embedding_consistency, plot_sparse_dense_embedding_patterns,
+    plot_weight_magnitude_distribution
+)
 import config
 
 def run_analysis(model, tokenizer, prompt, device):
