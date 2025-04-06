@@ -2,6 +2,14 @@
 
 This project provides tools to analyze and visualize the Key-Value (KV) cache in transformer-based language models. The visualizations and metrics help understand the internal workings of the model and identify optimization opportunities.
 
+## Features
+
+- **Multi-level Analysis**: Examine KV cache at layer, head, token, and embedding dimension levels
+- **Visualization Suite**: Generate informative heatmaps, charts, and distribution plots
+- **Pruning Simulation**: Test the impact of pruning on model quality and performance
+- **Generation Analysis**: Analyze how KV cache patterns evolve during text generation
+- **Dataset Integration**: Use WikiText samples for realistic analysis scenarios
+
 ## How to Use
 
 1. **Install Dependencies**:
@@ -9,61 +17,117 @@ This project provides tools to analyze and visualize the Key-Value (KV) cache in
    - Ensure you have Python installed.
    - Install the required libraries:
      ```bash
-     pip install torch transformers matplotlib seaborn scikit-learn pandas
+     pip install -r requirements.txt
      ```
 
 2. **Analysis Mode**:
 
    - Execute `main.py` to generate visualizations and analyze the KV cache:
+
      ```bash
      python main.py --mode analyze
      ```
 
-3. **Pruning Simulation**:
+   - Focus on specific aspects of analysis:
+     ```bash
+     python main.py --mode analyze --analysis_focus layers|heads|tokens|embeddings
+     ```
+
+3. **Generation Analysis**:
+
+   - Analyze how KV cache changes during the generation process:
+     ```bash
+     python main.py --mode analyze_generation
+     ```
+
+4. **Pruning Simulation**:
 
    - Simulate pruning specific layers:
+
      ```bash
      python main.py --mode prune --prune_layers 0,1,2
      ```
-   
+
    - Simulate pruning specific attention heads:
+
      ```bash
      python main.py --mode prune --prune_layers 0 --prune_heads 2,3
      ```
-   
+
    - Use custom prompts and continuations:
      ```bash
      python main.py --mode prune --prune_layers 0 --prompt "Your custom prompt text" --continuation "Text to evaluate model quality"
      ```
-   
-   - The results will show perplexity and latency changes comparing the baseline to the pruned model.
 
-4. **View Results**:
+5. **Use Different Datasets**:
 
-   - The generated visualizations will be saved as PNG files in the project directory:
-     - `layer_statistics.png`: Comparison of sparsity, correlation, standard deviation, and mean values across layers
-     - `head_sparsity.png`: Heatmap of key/value sparsity by head and layer
-     - `pruning_heatmap_by_layer_head.png`: Detailed heatmap showing pruning potential by layer and head
-     - `layer_pruning_potential.png`: Bar chart of pruning potential per layer
-     - `head_pruning_potential.png`: Bar chart of pruning potential per attention head
-     - `weight_magnitude_distribution.png`: Histograms of key and value weight magnitudes
+   - List available sample texts:
 
-5. **Interpret Results**:
-   - Refer to [graph-explanations.md](graph-explanations.md) for detailed explanations of each visualization.
-   - For pruning simulations, lower perplexity change percentages indicate better model preservation.
-   - Negative latency change percentages indicate performance improvements.
+     ```bash
+     python main.py --mode list_samples
+     ```
 
-## Files
+   - Use specific WikiText sample:
+     ```bash
+     python main.py --use_wikitext --wikitext_index 2
+     ```
 
-- `main.py`: The main script for generating KV cache visualizations and metrics.
-- `graph-explanations.md`: Detailed descriptions of the generated visualizations.
-- `README.md`: This file, providing an overview of the project.
-- `analysis/`: Contains modules for analyzing layers, heads, and dimensions.
-- `pruning/`: Contains modules for KV cache pruning and evaluation.
-- `utils/`: Contains utility functions for data collection and processing.
-- `visualization/`: Contains plotting functions for visualizations.
+## Generated Visualizations
+
+The tool produces various visualizations saved in the `graphs/` directory:
+
+### Layer-level Analysis
+
+- `graphs/layers/layer_statistics.png`: Metrics across model layers
+- `graphs/layers/layer_pruning_potential.png`: Pruning potential by layer
+
+### Head-level Analysis
+
+- `graphs/heads/head_sparsity.png`: Sparsity heatmaps by layer and head
+- `graphs/heads/head_pruning_potential.png`: Pruning potential by attention head
+- `graphs/heads/pruning_heatmap_by_layer_head.png`: Detailed pruning heatmap
+
+### Token-level Analysis
+
+- `graphs/tokens/token_position_importance.png`: Importance scores for token positions
+- `graphs/tokens/generation_stages_comparison.png`: Sparsity patterns during generation
+
+### Embedding-level Analysis
+
+- `graphs/embeddings/embedding_consistency.png`: Sparsity across embedding dimensions
+- `graphs/embeddings/sparse_dense_embedding_patterns.png`: Dimension activation patterns
+
+### Weight Analysis
+
+- `graphs/weight_magnitude_distribution.png`: Distribution of weight magnitudes
+
+## Project Structure
+
+- `main.py`: Main entry point with command-line interface
+- `config.py`: Configuration parameters for analysis and visualization
+- `analysis/`: Modules for analyzing different aspects of KV cache
+  - `layer_analysis.py`: Layer-level analysis functions
+  - `head_analysis.py`: Head-level analysis functions
+  - `token_analysis.py`: Token position analysis functions
+  - `embedding_analysis.py`: Embedding dimension analysis functions
+- `visualization/`: Plotting functions for different visualization types
+  - `layer_plots.py`: Layer-level visualizations
+  - `head_plots.py`: Head-level visualizations
+  - `token_plots.py`: Token-level visualizations
+  - `embedding_plots.py`: Embedding-level visualizations
+  - `common.py`: Common visualization utilities
+- `pruning/`: KV cache pruning simulation
+  - `pruner.py`: Core pruning functionality
+  - `evaluation.py`: Metrics for evaluating pruning impact
+- `utils/`: Utility functions
+  - `data_collection.py`: Functions for collecting KV cache data
+  - `dataset_loaders.py`: Functions for loading sample texts
+  - `generation_stages.py`: Utilities for analyzing generation process
+- `graph-explanations.md`: Detailed explanations of visualizations
 
 ## Requirements
 
 - Python 3.7+
-- GPU (optional but recommended for faster processing)
+- PyTorch 2.0+
+- Transformers 4.30+
+- CUDA-capable GPU (optional but recommended for faster processing)
