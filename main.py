@@ -19,6 +19,7 @@ from analysis import (
     analyze_embedding_dimensions, analyze_embedding_importance_by_layer, 
     identify_embedding_patterns, analyze_dimensions, find_prunable_dimensions
 )
+from analysis.similarity_analysis import find_compressible_patterns
 from pruning import KVCachePruner, KVCacheEvaluator
 from utils import (
     extract_kv_cache, extract_model_info, prepare_kv_cache_data,
@@ -32,6 +33,7 @@ from visualization import (
     plot_embedding_consistency, plot_sparse_dense_embedding_patterns,
     plot_weight_magnitude_distribution
 )
+from visualization.similarity_plots import plot_similarity_visualizations
 import config
 
 def run_analysis(model, tokenizer, prompt, device):
@@ -266,10 +268,66 @@ def run_generation_stage_analysis(model, tokenizer, prompt, device):
         "generated_tokens": gen_results["generated_tokens"]
     }
 
+def run_similarity_analysis(model, tokenizer, prompt, device):
+    """Run similarity analysis to find compressible patterns."""
+    print(f"Running similarity analysis on prompt: '{prompt[:50]}...'")
+    
+    # Extract KV cache
+    kv_cache, outputs = extract_kv_cache(model, tokenizer, prompt, device)
+    
+    # Find compressible patterns
+    print("Analyzing patterns for compressibility...")
+    similarity_results = find_compressible_patterns(kv_cache)
+    
+    # Generate visualizations
+    print("Generating similarity visualizations...")
+    plot_similarity_visualizations(similarity_results, prompt, tokenizer)
+    
+    # Print summary findings
+    print("\n=== Similarity Analysis Summary ===")
+    benefits = similarity_results["compression_benefits"]
+    
+    print("\nPotential Compression Opportunities:")
+    
+    # Layer-level findings
+    k_layer_groups = similarity_results["layer_similarity"]["k_similar_groups"]
+    v_layer_groups = similarity_results["layer_similarity"]["v_similar_groups"]
+    print(f"Layers - Found {len(k_layer_groups)} key groups and {len(v_layer_groups)} value groups")
+    print(f"  Potential savings: {benefits['k_layer_savings']} key layers, {benefits['v_layer_savings']} value layers")
+    
+    # Head-level findings
+    k_head_groups = similarity_results["head_similarity"]["k_similar_groups"]
+    v_head_groups = similarity_results["head_similarity"]["v_similar_groups"]
+    print(f"Heads - Found {len(k_head_groups)} key groups and {len(v_head_groups)} value groups")
+    print(f"  Potential savings: {benefits['k_head_savings']} key heads, {benefits['v_head_savings']} value heads")
+    
+    # Token-level findings
+    k_token_clusters = similarity_results["token_similarity"]["k_best_n_clusters"]
+    v_token_clusters = similarity_results["token_similarity"]["v_best_n_clusters"]
+    total_tokens = len(similarity_results["token_similarity"]["k_clusters_df"])
+    print(f"Tokens - Found {k_token_clusters} key clusters and {v_token_clusters} value clusters for {total_tokens} tokens")
+    print(f"  Potential savings: {benefits['k_token_savings']} key tokens, {benefits['v_token_savings']} value tokens")
+    
+    # Embedding-level findings
+    k_dim_groups = similarity_results["embedding_similarity"]["k_similar_groups"]
+    v_dim_groups = similarity_results["embedding_similarity"]["v_similar_groups"]
+    print(f"Embeddings - Found {len(k_dim_groups)} key groups and {len(v_dim_groups)} value groups")
+    print(f"  Potential savings: {benefits['k_dim_savings']} key dimensions, {benefits['v_dim_savings']} value dimensions")
+    
+    # Overall findings
+    total_savings = sum(benefits.values())
+    print(f"\nTotal potential compression: {total_savings} elements could be merged")
+    
+    return {
+        "kv_cache": kv_cache,
+        "similarity_results": similarity_results
+    }
+
 def main():
     parser = argparse.ArgumentParser(description="KV Cache Analysis and Pruning")
-    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation", "list_samples"], default="analyze",
-                        help="Run analysis, pruning simulation, generation analysis, or list available samples")
+    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation", "analyze_similarity", "list_samples"], 
+                        default="analyze",
+                        help="Run analysis, pruning simulation, generation analysis, similarity analysis, or list available samples")
     parser.add_argument("--model", default=config.DEFAULT_MODEL, 
                         help="Model to analyze")
     parser.add_argument("--prune_layers", type=str, default="",
@@ -327,7 +385,11 @@ def main():
         
     elif args.mode == "analyze_generation":
         # Run generation stage analysis
-        gen_analysis = run_generation_stage_analysis(model, tokenizer, args.prompt, device)
+        gen_analysis = run_generation_stage_analysis(model, tokenizer, prompt, device)
+    
+    elif args.mode == "analyze_similarity":
+        # Run similarity analysis
+        similarity_results = run_similarity_analysis(model, tokenizer, prompt, device)
         
     elif args.mode == "prune":
         # Parse pruning parameters

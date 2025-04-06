@@ -21,3 +21,11 @@ from analysis.embedding_analysis import (
     identify_similar_embedding_dimensions,
     find_consistent_embeddings
 )
+
+# Similarity and compression analysis
+from analysis.similarity_analysis import (
+    analyze_layer_similarity,
+    analyze_head_similarity,
+    analyze_token_similarity,
+    find_compressible_patterns
+)

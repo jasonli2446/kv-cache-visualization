@@ -13,11 +13,17 @@ import config
 
 def ensure_graph_dir(dir_path):
     """
-    Ensure a directory exists for saving graphs.
+    Ensure that a directory exists for saving graphs.
+    If the path doesn't include 'graphs/' prefix, add it.
     
     Args:
-        dir_path: Directory path to create if it doesn't exist
+        dir_path: Directory path
     """
+    # Ensure the path starts with 'graphs/'
+    if not dir_path.startswith('graphs/'):
+        dir_path = f'graphs/{dir_path}'
+    
+    # Create directory if it doesn't exist
     os.makedirs(dir_path, exist_ok=True)
 
 def plot_weight_magnitude_distribution(all_keys, all_values, k_threshold, v_threshold):
