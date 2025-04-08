@@ -158,14 +158,67 @@ This multi-plot visualization shows how different embedding dimensions behave ac
 
 ---
 
-## 11. Overall Pruning Recommendations
+## 12. Layer Similarity Matrix (`layer_similarity_matrix.png`)
 
-Based on the visualizations, here are key takeaways for optimizing KV cache:
+This visualization shows the similarity relationships between different layers:
 
-- **Layer-level pruning**: Focus on layers showing consistently high sparsity across multiple heads.
-- **Head-level pruning**: Consider removing or compressing attention heads with high mean sparsity and low standard deviation.
-- **Token-level pruning**: Lower importance token positions could be represented with reduced precision.
-- **Embedding-level optimization**: Target specific embedding dimensions that are consistently sparse across contexts.
-- **Generation-aware pruning**: Apply different pruning strategies at different stages of text generation.
+- **What you're seeing**: A heatmap where each cell represents the cosine similarity between two layers.
+- **Interpretation**:
+  - **Bright clusters**: Groups of layers with highly similar representations, suggesting redundancy.
+  - **Diagonal patterns**: Adjacent layers with high similarity may be candidates for merging.
+  - **Distinct blocks**: May indicate functional groups of layers that serve similar purposes.
+- **Implementation details**: Calculated using cosine similarity between flattened layer representations, with values ranging from 0 (completely different) to 1 (identical).
 
-The combination of these visualizations provides a comprehensive picture of pruning opportunities throughout the model, allowing for targeted optimizations that preserve model quality while reducing computational requirements.
+---
+
+## 13. Head Similarity Matrix (`head_similarity_matrix.png`)
+
+This visualization shows similarity relationships between attention heads:
+
+- **What you're seeing**: A heatmap where each cell represents the cosine similarity between two attention heads, potentially across different layers.
+- **Interpretation**:
+  - **Bright clusters**: Groups of heads with nearly identical behavior that could be merged.
+  - **Cross-layer similarities**: Heads from different layers that capture similar patterns.
+  - **Isolated heads**: Unique heads with no clear similarity to others may be performing specialized functions.
+- **Implementation details**: Uses cosine similarity between the activation patterns of each head across all token positions.
+
+---
+
+## 14. Embedding Dimension Correlations (`embedding_dimension_correlations.png`)
+
+This visualization shows correlations between embedding dimensions:
+
+- **What you're seeing**: Two correlation matrices showing Pearson correlation coefficients between embedding dimensions for keys and values.
+- **Interpretation**:
+  - **Strong positive correlations**: Dimensions that tend to activate together (red/yellow).
+  - **Strong negative correlations**: Dimensions with opposing activation patterns (blue).
+  - **Blocks of correlation**: Suggest groups of dimensions that could be compressed together.
+- **Implementation details**: Uses Pearson correlation, with values ranging from -1 (perfectly anti-correlated) to 1 (perfectly correlated).
+
+---
+
+## 15. Token Similarity Matrix (`token_similarity_matrix.png`)
+
+This visualization shows similarity between different token positions:
+
+- **What you're seeing**: A heatmap where each cell represents the cosine similarity between KV cache entries at two token positions.
+- **Interpretation**:
+  - **Bright diagonal**: Self-similarity (always highest).
+  - **Bright off-diagonal regions**: Token positions with similar representations that could share cache entries.
+  - **Block patterns**: May indicate phrases or semantic units that have coherent representations.
+- **Implementation details**: Combines both key and value similarities into a single metric, using cosine similarity between token representations.
+
+---
+
+## 16. Token KV Similarity Matrices (`token_kv_similarity_matrices.png`)
+
+This visualization provides separate views of key and value similarities between tokens:
+
+- **What you're seeing**: Side-by-side heatmaps showing key similarity (left) and value similarity (right) between token positions.
+- **Interpretation**:
+  - **Differences between keys and values**: May reveal which aspect is more important for certain tokens.
+  - **Clustering patterns**: Groups of tokens that could share key or value representations.
+  - **Sequential patterns**: How similarity changes with token distance in the sequence.
+- **Implementation details**: Uses cosine similarity with separate calculations for keys and values.
+
+---

@@ -8,7 +8,9 @@ This project provides tools to analyze and visualize the Key-Value (KV) cache in
 - **Visualization Suite**: Generate informative heatmaps, charts, and distribution plots
 - **Pruning Simulation**: Test the impact of pruning on model quality and performance
 - **Generation Analysis**: Analyze how KV cache patterns evolve during text generation
+- **Similarity Analysis**: Identify compressible patterns across layers, heads, tokens, and embedding dimensions
 - **Dataset Integration**: Use WikiText samples for realistic analysis scenarios
+- **Compression Opportunities**: Quantify potential KV cache size reduction through similarity detection
 
 ## How to Use
 
@@ -40,7 +42,16 @@ This project provides tools to analyze and visualize the Key-Value (KV) cache in
      python main.py --mode analyze_generation
      ```
 
-4. **Pruning Simulation**:
+4. **Similarity Analysis**:
+
+   - Identify compressible patterns across the KV cache:
+     ```bash
+     python main.py --mode analyze_similarity
+     ```
+   
+   - This mode detects redundant information that could be merged or compressed
+
+5. **Pruning Simulation**:
 
    - Simulate pruning specific layers:
 
@@ -59,7 +70,7 @@ This project provides tools to analyze and visualize the Key-Value (KV) cache in
      python main.py --mode prune --prune_layers 0 --prompt "Your custom prompt text" --continuation "Text to evaluate model quality"
      ```
 
-5. **Use Different Datasets**:
+6. **Use Different Datasets**:
 
    - List available sample texts:
 
@@ -101,6 +112,14 @@ The tool produces various visualizations saved in the `graphs/` directory:
 
 - `graphs/weight_magnitude_distribution.png`: Distribution of weight magnitudes
 
+### Similarity Analysis
+
+- `graphs/similarity/layer_similarity_matrix.png`: Similarity between model layers
+- `graphs/similarity/head_similarity_matrix.png`: Similarity between attention heads
+- `graphs/similarity/embedding_dimension_correlations.png`: Correlation between embedding dimensions
+- `graphs/similarity/token_similarity_matrix.png`: Similarity between token positions
+- `graphs/similarity/token_kv_similarity_matrices.png`: Separate key and value token similarity
+
 ## Project Structure
 
 - `main.py`: Main entry point with command-line interface
@@ -110,11 +129,13 @@ The tool produces various visualizations saved in the `graphs/` directory:
   - `head_analysis.py`: Head-level analysis functions
   - `token_analysis.py`: Token position analysis functions
   - `embedding_analysis.py`: Embedding dimension analysis functions
+  - `similarity_analysis.py`: Functions to find compressible patterns
 - `visualization/`: Plotting functions for different visualization types
   - `layer_plots.py`: Layer-level visualizations
   - `head_plots.py`: Head-level visualizations
   - `token_plots.py`: Token-level visualizations
   - `embedding_plots.py`: Embedding-level visualizations
+  - `similarity_plots.py`: Similarity and compression visualizations
   - `common.py`: Common visualization utilities
 - `pruning/`: KV cache pruning simulation
   - `pruner.py`: Core pruning functionality
