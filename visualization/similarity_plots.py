@@ -138,68 +138,6 @@ def plot_embedding_dimension_correlation(embedding_correlation_results):
     plt.savefig("graphs/similarity/embedding_dimension_correlations.png", dpi=300, bbox_inches="tight")
     plt.close()
 
-def plot_token_clusters(token_similarity_results, prompt=None, tokenizer=None):
-    """
-    Visualize token clusters.
-    
-    Args:
-        token_similarity_results: Results from analyze_token_similarity
-        prompt: Original prompt text (optional)
-        tokenizer: Tokenizer for decoding token IDs (optional)
-    """
-    ensure_graph_dir("similarity")
-    
-    k_clusters_df = token_similarity_results["k_clusters_df"]
-    v_clusters_df = token_similarity_results["v_clusters_df"]
-    
-    # Plot cluster distributions
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-    
-    sns.histplot(data=k_clusters_df, x="cluster", discrete=True, ax=ax1, color="teal")
-    ax1.set_title(f"Key Token Clusters (K={token_similarity_results['k_best_n_clusters']})")
-    ax1.set_xlabel("Cluster ID")
-    ax1.set_ylabel("Number of Tokens")
-    
-    sns.histplot(data=v_clusters_df, x="cluster", discrete=True, ax=ax2, color="teal")
-    ax2.set_title(f"Value Token Clusters (K={token_similarity_results['v_best_n_clusters']})")
-    ax2.set_xlabel("Cluster ID")
-    ax2.set_ylabel("Number of Tokens")
-    
-    plt.tight_layout()
-    plt.savefig("graphs/similarity/token_cluster_distribution.png", dpi=300, bbox_inches="tight")
-    plt.close()
-    
-    # Plot token positions by cluster
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-    
-    # For keys
-    token_clusters = []
-    for idx, row in k_clusters_df.iterrows():
-        token_clusters.append((row["token_position"], row["cluster"]))
-    token_clusters.sort(key=lambda x: x[0])  # Sort by token position
-    
-    positions, clusters = zip(*token_clusters) if token_clusters else ([], [])
-    ax1.scatter(positions, clusters, marker='o', s=50, color="teal")
-    ax1.set_title(f"Key Cluster Assignments by Token Position")
-    ax1.set_xlabel("Token Position")
-    ax1.set_ylabel("Cluster")
-    
-    # For values
-    token_clusters = []
-    for idx, row in v_clusters_df.iterrows():
-        token_clusters.append((row["token_position"], row["cluster"]))
-    token_clusters.sort(key=lambda x: x[0])  # Sort by token position
-    
-    positions, clusters = zip(*token_clusters) if token_clusters else ([], [])
-    ax2.scatter(positions, clusters, marker='o', s=50, color="teal")
-    ax2.set_title(f"Value Cluster Assignments by Token Position")
-    ax2.set_xlabel("Token Position")
-    ax2.set_ylabel("Cluster")
-    
-    plt.tight_layout()
-    plt.savefig("graphs/similarity/token_cluster_positions.png", dpi=300, bbox_inches="tight")
-    plt.close()
-
 def plot_token_similarity_matrix(token_similarity_matrix_results, prompt=None, tokenizer=None):
     """
     Plot token-to-token similarity matrix.
