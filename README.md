@@ -119,6 +119,7 @@ The tool produces various visualizations saved in the `graphs/` directory:
 - `graphs/similarity/embedding_dimension_correlations.png`: Correlation between embedding dimensions
 - `graphs/similarity/token_similarity_matrix.png`: Similarity between token positions
 - `graphs/similarity/token_kv_similarity_matrices.png`: Separate key and value token similarity
+- `graphs/similarity/token_embedding_patterns.png`: Cross-dimensional analysis between tokens and embeddings
 
 ## Project Structure
 

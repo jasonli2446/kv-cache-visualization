@@ -222,3 +222,17 @@ This visualization provides separate views of key and value similarities between
 - **Implementation details**: Uses cosine similarity with separate calculations for keys and values.
 
 ---
+
+## 17. Token-Embedding Patterns (`token_embedding_patterns.png`)
+
+This visualization reveals cross-dimensional relationships between token positions and embedding dimensions:
+
+- **What you're seeing**: Side-by-side heatmaps showing activation patterns where rows represent token positions and columns represent embedding dimensions, for both keys (left) and values (right).
+- **Interpretation**:
+  - **Bright horizontal lines**: Token positions that strongly activate across many dimensions.
+  - **Bright vertical lines**: Embedding dimensions that respond to many different tokens.
+  - **Bright clusters**: Specific token-dimension pairs with strong associations.
+  - **Pattern similarities**: Comparing key and value patterns reveals which aspect dominates in different regions.
+- **Implementation details**: Activation strengths are averaged across layers and heads, then normalized for better visualization. This analysis identifies opportunities for cross-dimensional compression that aren't visible when analyzing tokens or embeddings separately.
+
+---

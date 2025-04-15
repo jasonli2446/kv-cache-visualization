@@ -537,30 +537,17 @@ def compute_token_similarity_matrix(kv_cache, max_tokens=100):
 
 def find_compressible_patterns(kv_cache):
     """
-    Identify patterns across dimensions that could be compressed.
-    
-    Args:
-        kv_cache: KV cache from model output
-        
-    Returns:
-        Dict with compression opportunities
+    Find patterns in KV cache that could be compressed or clustered.
     """
-    # Get layer similarity
-    layer_similarity = analyze_layer_similarity(kv_cache, similarity_threshold=0.95)
-    
-    # Get head similarity with hierarchical clustering
-    head_similarity = analyze_head_similarity(kv_cache, similarity_threshold=0.9)
-    
-    # Get embedding dimension correlation
-    embedding_similarity = analyze_embedding_dimension_correlation(kv_cache)
-    
-    # Get token similarity (keep existing implementation)
+    layer_similarity = analyze_layer_similarity(kv_cache)
+    head_similarity = analyze_head_similarity(kv_cache)
     token_similarity = analyze_token_similarity(kv_cache)
-    
-    # Get token similarity matrix
     token_similarity_matrix = compute_token_similarity_matrix(kv_cache)
+    embedding_similarity = analyze_embedding_dimension_correlation(kv_cache)
+    token_embedding_similarity = analyze_token_embedding_similarity(kv_cache)
+    token_embedding_compression = identify_token_embedding_compression(token_embedding_similarity)
     
-    # Calculate potential compression benefits
+    # Calculate compression benefits
     compression_benefits = {}
     
     # Layer-level compression
@@ -585,11 +572,196 @@ def find_compressible_patterns(kv_cache):
     compression_benefits['k_dim_savings'] = sum([len(group) - 1 for group in k_dim_groups]) if k_dim_groups else 0
     compression_benefits['v_dim_savings'] = sum([len(group) - 1 for group in v_dim_groups]) if v_dim_groups else 0
     
+    # Add token-embedding compression benefits
+    compression_benefits['token_emb_potential'] = token_embedding_compression['compression']['compression_potential']
+    
     return {
         "layer_similarity": layer_similarity,
         "head_similarity": head_similarity,
         "token_similarity": token_similarity,
         "token_similarity_matrix": token_similarity_matrix,
         "embedding_similarity": embedding_similarity,
-        "compression_benefits": compression_benefits
+        "compression_benefits": compression_benefits,
+        "token_embedding_similarity": token_embedding_similarity,
+        "token_embedding_compression": token_embedding_compression
+    }
+
+def analyze_token_embedding_similarity(kv_cache, max_tokens=100, sample_dims=None):
+    """
+    Analyze similarity patterns between token positions and embedding dimensions.
+    
+    Args:
+        kv_cache: KV cache from model output
+        max_tokens: Maximum number of tokens to analyze
+        sample_dims: Number of embedding dimensions to sample (if None, use all)
+        
+    Returns:
+        Dict with token-embedding similarity analysis
+    """
+    num_layers = len(kv_cache)
+    batch_size, num_heads, seq_len, head_dim = kv_cache[0][0].shape
+    
+    # Limit tokens if sequence is very long
+    if seq_len > max_tokens:
+        token_indices = np.linspace(0, seq_len-1, max_tokens, dtype=int)
+    else:
+        token_indices = range(seq_len)
+    
+    # Optionally sample embedding dimensions
+    if sample_dims and sample_dims < head_dim:
+        emb_indices = np.random.choice(head_dim, sample_dims, replace=False)
+    else:
+        emb_indices = range(head_dim)
+    
+    # Create token-embedding activation matrices [tokens × embedding_dims]
+    k_token_emb = np.zeros((len(token_indices), len(emb_indices)))
+    v_token_emb = np.zeros((len(token_indices), len(emb_indices)))
+    
+    # Fill matrices with average activation values
+    for t_idx, token_idx in enumerate(token_indices):
+        for e_idx, emb_idx in enumerate(emb_indices):
+            # Collect values across layers and heads
+            k_values = []
+            v_values = []
+            
+            for layer_idx in range(num_layers):
+                keys, values = kv_cache[layer_idx]
+                
+                # Extract values for this token and embedding dimension
+                k_layer_values = keys[0, :, token_idx, emb_idx].cpu().numpy()
+                v_layer_values = values[0, :, token_idx, emb_idx].cpu().numpy()
+                
+                k_values.append(np.mean(np.abs(k_layer_values)))
+                v_values.append(np.mean(np.abs(v_layer_values)))
+            
+            # Store average values across layers
+            k_token_emb[t_idx, e_idx] = np.mean(k_values)
+            v_token_emb[t_idx, e_idx] = np.mean(v_values)
+    
+    # Normalize matrices
+    k_norm = k_token_emb / np.max(k_token_emb) if np.max(k_token_emb) > 0 else k_token_emb
+    v_norm = v_token_emb / np.max(v_token_emb) if np.max(v_token_emb) > 0 else v_token_emb
+    
+    # Find patterns through clustering
+    from sklearn.cluster import KMeans
+    
+    # Cluster tokens based on embedding patterns
+    k_token_clusters = KMeans(n_clusters=min(5, len(token_indices)), random_state=42).fit_predict(k_norm)
+    v_token_clusters = KMeans(n_clusters=min(5, len(token_indices)), random_state=42).fit_predict(v_norm)
+    
+    # Cluster embeddings based on token patterns
+    k_emb_clusters = KMeans(n_clusters=min(5, len(emb_indices)), random_state=42).fit_predict(k_norm.T)
+    v_emb_clusters = KMeans(n_clusters=min(5, len(emb_indices)), random_state=42).fit_predict(v_norm.T)
+    
+    # Find high activation token-embedding pairs
+    k_high = []
+    v_high = []
+    k_threshold = np.percentile(k_norm, 90)
+    v_threshold = np.percentile(v_norm, 90)
+    
+    for t_idx, token_idx in enumerate(token_indices):
+        for e_idx, emb_idx in enumerate(emb_indices):
+            if k_norm[t_idx, e_idx] > k_threshold:
+                k_high.append((token_idx, emb_idx, k_norm[t_idx, e_idx]))
+            if v_norm[t_idx, e_idx] > v_threshold:
+                v_high.append((token_idx, emb_idx, v_norm[t_idx, e_idx]))
+    
+    # Sort by activation strength
+    k_high.sort(key=lambda x: x[2], reverse=True)
+    v_high.sort(key=lambda x: x[2], reverse=True)
+    
+    return {
+        "token_indices": token_indices,
+        "emb_indices": emb_indices,
+        "k_token_emb": k_norm,
+        "v_token_emb": v_norm,
+        "k_token_clusters": k_token_clusters,
+        "v_token_clusters": v_token_clusters,
+        "k_emb_clusters": k_emb_clusters,
+        "v_emb_clusters": v_emb_clusters,
+        "k_high_activations": k_high,
+        "v_high_activations": v_high
+    }
+
+def identify_token_embedding_compression(results):
+    """
+    Identify compression opportunities from token-embedding similarity analysis.
+    
+    Args:
+        results: Results from analyze_token_embedding_similarity
+        
+    Returns:
+        Dict with compression opportunities
+    """
+    k_norm = results["k_token_emb"]
+    v_norm = results["v_token_emb"]
+    token_indices = results["token_indices"]
+    emb_indices = results["emb_indices"]
+    
+    # Find token-specific embeddings (high variance across tokens)
+    token_specific = []
+    for e_idx, emb_idx in enumerate(emb_indices):
+        k_var = np.var(k_norm[:, e_idx])
+        v_var = np.var(v_norm[:, e_idx])
+        
+        if k_var > np.percentile(np.var(k_norm, axis=0), 75) or \
+           v_var > np.percentile(np.var(v_norm, axis=0), 75):
+            # Find tokens where this embedding is most active
+            k_top = np.argsort(k_norm[:, e_idx])[-3:]  # Top 3 tokens
+            v_top = np.argsort(v_norm[:, e_idx])[-3:]
+            
+            token_specific.append({
+                "embedding": emb_idx,
+                "k_variance": k_var,
+                "v_variance": v_var,
+                "k_top_tokens": [token_indices[i] for i in k_top],
+                "v_top_tokens": [token_indices[i] for i in v_top]
+            })
+    
+    # Calculate similarities between tokens based on embedding patterns
+    token_sim = np.zeros((len(token_indices), len(token_indices)))
+    for i in range(len(token_indices)):
+        for j in range(len(token_indices)):
+            if i == j:
+                token_sim[i, j] = 1.0
+            else:
+                # Cosine similarity between token embedding patterns
+                k_sim = np.dot(k_norm[i], k_norm[j]) / (
+                    np.linalg.norm(k_norm[i]) * np.linalg.norm(k_norm[j]) + 1e-8)
+                v_sim = np.dot(v_norm[i], v_norm[j]) / (
+                    np.linalg.norm(v_norm[i]) * np.linalg.norm(v_norm[j]) + 1e-8)
+                token_sim[i, j] = (k_sim + v_sim) / 2
+    
+    # Find groups of similar tokens
+    similar_tokens = []
+    threshold = 0.9
+    visited = set()
+    
+    for i in range(len(token_indices)):
+        if i not in visited:
+            group = [i]
+            for j in range(i+1, len(token_indices)):
+                if token_sim[i, j] >= threshold:
+                    group.append(j)
+                    visited.add(j)
+            
+            if len(group) > 1:  # Only add groups with more than one token
+                similar_tokens.append({
+                    "tokens": [token_indices[idx] for idx in group],
+                    "similarity": np.mean([token_sim[i, j] for j in group])
+                })
+            visited.add(i)
+    
+    # Calculate compression potential
+    compression = {
+        "token_specific_count": len(token_specific),
+        "similar_token_groups": len(similar_tokens),
+        "similar_tokens_total": sum(len(g["tokens"]) for g in similar_tokens),
+        "compression_potential": sum(len(g["tokens"]) - 1 for g in similar_tokens)
+    }
+    
+    return {
+        "token_specific_embeddings": token_specific,
+        "similar_token_groups": similar_tokens,
+        "compression": compression
     }

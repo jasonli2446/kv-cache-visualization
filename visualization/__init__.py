@@ -10,8 +10,9 @@ from visualization.embedding_plots import plot_embedding_consistency, plot_spars
 from visualization.common import plot_weight_magnitude_distribution
 from visualization.similarity_plots import (
     plot_layer_similarity_heatmap,
-    plot_head_similarity_matrix,  # Updated from plot_head_clustering_dendrogram
-    plot_token_clusters,
+    plot_head_similarity_matrix,
+    plot_token_similarity_matrix,
     plot_embedding_dimension_correlation,
+    plot_token_embedding_patterns,
     plot_similarity_visualizations
 )

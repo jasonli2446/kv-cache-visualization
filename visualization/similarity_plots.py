@@ -247,6 +247,35 @@ def plot_token_similarity_matrix(token_similarity_matrix_results, prompt=None, t
     plt.savefig("graphs/similarity/token_kv_similarity_matrices.png", dpi=300, bbox_inches="tight")
     plt.close()
 
+def plot_token_embedding_patterns(token_embedding_results):
+    """
+    Plot patterns between tokens and embedding dimensions.
+    """
+    ensure_graph_dir("graphs/similarity")
+    
+    # Create heatmaps showing token-embedding activation patterns
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # Key token-embedding heatmap
+    sns.heatmap(token_embedding_results["k_token_emb"], 
+                ax=axes[0], cmap="viridis", 
+                xticklabels=50, yticklabels=50)
+    axes[0].set_title("Key Token-Embedding Patterns")
+    axes[0].set_xlabel("Embedding Dimensions")
+    axes[0].set_ylabel("Token Positions")
+    
+    # Value token-embedding heatmap
+    sns.heatmap(token_embedding_results["v_token_emb"], 
+                ax=axes[1], cmap="viridis", 
+                xticklabels=50, yticklabels=50)
+    axes[1].set_title("Value Token-Embedding Patterns")
+    axes[1].set_xlabel("Embedding Dimensions")
+    axes[1].set_ylabel("Token Positions")
+    
+    plt.tight_layout()
+    plt.savefig("graphs/similarity/token_embedding_patterns.png", dpi=300)
+    plt.close()
+
 def plot_similarity_visualizations(similarity_results, prompt=None, tokenizer=None):
     """
     Plot all similarity visualizations.
@@ -267,3 +296,7 @@ def plot_similarity_visualizations(similarity_results, prompt=None, tokenizer=No
     
     print("Plotting token similarity matrix...")
     plot_token_similarity_matrix(similarity_results["token_similarity_matrix"], prompt, tokenizer)
+    
+    # Plot token-embedding patterns
+    if "token_embedding_similarity" in similarity_results:
+        plot_token_embedding_patterns(similarity_results["token_embedding_similarity"])
