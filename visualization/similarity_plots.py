@@ -276,6 +276,53 @@ def plot_token_embedding_patterns(token_embedding_results):
     plt.savefig("graphs/similarity/token_embedding_patterns.png", dpi=300)
     plt.close()
 
+def plot_dimension_grouping(dimension_groups):
+    """Plot identified embedding dimension groups."""
+    ensure_graph_dir("graphs/similarity")
+    
+    # Create subplots for key and value groups
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+    
+    # Plot key groups
+    k_group_sizes = [len(g) for g in dimension_groups["k_groups"]]
+    ax1.bar(range(len(k_group_sizes)), k_group_sizes)
+    ax1.set_title(f"Key Dimension Groups (Total groups: {len(dimension_groups['k_groups'])})")
+    ax1.set_xlabel("Group Index")
+    ax1.set_ylabel("Group Size")
+    
+    # Show group members
+    for i, group in enumerate(dimension_groups["k_groups"]):
+        if len(group) > 0:
+            ax1.annotate(f"Dims: {group}", 
+                      (i, len(group)),
+                      textcoords="offset points",
+                      xytext=(0, 5),
+                      ha='center',
+                      fontsize=8,
+                      rotation=90)
+    
+    # Plot value groups
+    v_group_sizes = [len(g) for g in dimension_groups["v_groups"]]
+    ax2.bar(range(len(v_group_sizes)), v_group_sizes, color='orange')
+    ax2.set_title(f"Value Dimension Groups (Total groups: {len(dimension_groups['v_groups'])})")
+    ax2.set_xlabel("Group Index")
+    ax2.set_ylabel("Group Size")
+    
+    # Show group members
+    for i, group in enumerate(dimension_groups["v_groups"]):
+        if len(group) > 0:
+            ax2.annotate(f"Dims: {group}", 
+                      (i, len(group)),
+                      textcoords="offset points",
+                      xytext=(0, 5),
+                      ha='center',
+                      fontsize=8,
+                      rotation=90)
+    
+    plt.tight_layout()
+    plt.savefig("graphs/similarity/embedding_dimension_groups.png")
+    plt.close()
+
 def plot_similarity_visualizations(similarity_results, prompt=None, tokenizer=None):
     """
     Plot all similarity visualizations.
@@ -300,3 +347,7 @@ def plot_similarity_visualizations(similarity_results, prompt=None, tokenizer=No
     # Plot token-embedding patterns
     if "token_embedding_similarity" in similarity_results:
         plot_token_embedding_patterns(similarity_results["token_embedding_similarity"])
+    
+    # Add this line to call the new plot function when dimension groups are available
+    if "dimension_groups" in similarity_results:
+        plot_dimension_grouping(similarity_results["dimension_groups"])

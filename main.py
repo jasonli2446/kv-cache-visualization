@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import time
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import config
 
 # Import from our modules
 from analysis import (
@@ -34,7 +35,10 @@ from visualization import (
     plot_weight_magnitude_distribution
 )
 from visualization.similarity_plots import plot_similarity_visualizations
-import config
+from visualization.similarity_plots import plot_dimension_grouping
+
+from analysis.similarity_analysis import identify_groupable_embedding_dimensions
+from pruning.evaluation import evaluate_dimension_compression
 
 def run_analysis(model, tokenizer, prompt, device):
     """Run analysis pipeline on the model."""
@@ -323,11 +327,51 @@ def run_similarity_analysis(model, tokenizer, prompt, device):
         "similarity_results": similarity_results
     }
 
+def run_compression_evaluation(model, tokenizer, prompt, device):
+    """Run embedding dimension compression evaluation."""
+    print(f"Running embedding compression evaluation on prompt: '{prompt[:50]}...'")
+    
+    # Extract KV cache
+    kv_cache, outputs = extract_kv_cache(model, tokenizer, prompt, device)
+    
+    # Find groupable dimensions
+    print("Identifying groupable embedding dimensions...")
+    dimension_groups = identify_groupable_embedding_dimensions(kv_cache)
+    
+    # After identifying dimension groups, generate the visualization
+    plot_dimension_grouping(dimension_groups)
+    
+    # Create a continuation for evaluation
+    if len(prompt) > 100:
+        # Use part of the prompt as continuation for evaluation
+        continuation = prompt[50:100]
+    else:
+        continuation = config.SAMPLE_CONTINUATION
+    
+    print("Evaluating compression impact...")
+    results = evaluate_dimension_compression(model, tokenizer, kv_cache, prompt, continuation, dimension_groups)
+    
+    # Print results
+    print("\n=== Embedding Dimension Compression Results ===")
+    
+    print(f"Groups found: {len(dimension_groups['k_groups'])} key groups, {len(dimension_groups['v_groups'])} value groups")
+    print(f"Dimensions compressed: {results['k_saved_dimensions']} key dims, {results['v_saved_dimensions']} value dims")
+    print(f"Compression ratio: {results['compression_ratio']:.4f} (lower is more compressed)")
+    print(f"Memory usage: {results['baseline_memory_mb']:.2f}MB → {results['compressed_memory_mb']:.2f}MB ({results['memory_savings_pct']:.2f}% reduction)")
+    print(f"Perplexity: {results['baseline_perplexity']:.4f} → {results['compressed_perplexity']:.4f} ({results['perplexity_change_pct']:+.2f}% change)")
+    
+    return {
+        "kv_cache": kv_cache,
+        "dimension_groups": dimension_groups,
+        "evaluation_results": results
+    }
+
 def main():
     parser = argparse.ArgumentParser(description="KV Cache Analysis and Pruning")
-    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation", "analyze_similarity", "list_samples"], 
-                        default="analyze",
-                        help="Run analysis, pruning simulation, generation analysis, similarity analysis, or list available samples")
+    parser.add_argument("--mode", choices=["analyze", "prune", "analyze_generation", 
+                                          "analyze_similarity", "compress", "list_samples"], 
+                       default="analyze",
+                       help="Run analysis, pruning, generation analysis, similarity analysis, compression evaluation, or list samples")
     parser.add_argument("--model", default=config.DEFAULT_MODEL, 
                         help="Model to analyze")
     parser.add_argument("--prune_layers", type=str, default="",
@@ -407,9 +451,13 @@ def main():
             head_indices=head_indices
         )
     
+    elif args.mode == "compress":
+        # Run compression evaluation
+        compression_results = run_compression_evaluation(model, tokenizer, prompt, device)
+    
     elif args.mode == "list_samples":
         from utils.dataset_loaders import print_wikitext_samples
-        samples = print_wikitext_samples()
+        samples = print_wikitext_samples
     
     print("\nDone!")
 

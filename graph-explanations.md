@@ -236,3 +236,16 @@ This visualization reveals cross-dimensional relationships between token positio
 - **Implementation details**: Activation strengths are averaged across layers and heads, then normalized for better visualization. This analysis identifies opportunities for cross-dimensional compression that aren't visible when analyzing tokens or embeddings separately.
 
 ---
+
+## 18. Embedding Dimension Groups (`embedding_dimension_groups.png`)
+
+This visualization shows groups of similar embedding dimensions that can be compressed:
+
+- **What you're seeing**: Two bar charts showing key dimension groups (top) and value dimension groups (bottom), with annotations listing the specific dimensions in each group.
+- **Interpretation**:
+  - **Taller bars**: Larger groups of similar dimensions that provide greater compression potential.
+  - **Group count**: More groups indicates fine-grained clustering of similar dimensions.
+  - **Dimension patterns**: Which specific dimensions tend to behave similarly across contexts.
+- **Implementation details**: Dimensions are grouped based on cosine similarity of their activation patterns across token positions, with a maximum group size limit to prevent over-clustering.
+
+---

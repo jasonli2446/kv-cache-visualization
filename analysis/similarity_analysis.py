@@ -765,3 +765,106 @@ def identify_token_embedding_compression(results):
         "similar_token_groups": similar_tokens,
         "compression": compression
     }
+
+def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.85, max_group_size=8):
+    """
+    Identify embedding dimensions that can be grouped based on activation patterns.
+    
+    Args:
+        kv_cache: KV cache from model output
+        similarity_threshold: Threshold for determining similarity (higher = more conservative)
+        max_group_size: Maximum number of dimensions per group
+        
+    Returns:
+        Dict with groups of similar dimensions that can be compressed
+    """
+    # First run token-embedding analysis
+    token_emb = analyze_token_embedding_similarity(kv_cache, sample_dims=None)
+    
+    # Extract normalized key patterns (dimensions as columns)
+    k_norm = token_emb["k_token_emb"]
+    v_norm = token_emb["v_token_emb"]
+    emb_indices = token_emb["emb_indices"]
+    
+    # Calculate column-wise similarity (dimension to dimension)
+    k_dimension_similarity = np.zeros((k_norm.shape[1], k_norm.shape[1]))
+    v_dimension_similarity = np.zeros((v_norm.shape[1], v_norm.shape[1]))
+    
+    for i in range(k_norm.shape[1]):
+        for j in range(k_norm.shape[1]):
+            if i == j:
+                k_dimension_similarity[i, j] = 1.0
+                v_dimension_similarity[i, j] = 1.0
+            else:
+                # Cosine similarity between dimension patterns across tokens
+                k_sim = np.dot(k_norm[:, i], k_norm[:, j]) / (
+                    np.linalg.norm(k_norm[:, i]) * np.linalg.norm(k_norm[:, j]) + 1e-8)
+                v_sim = np.dot(v_norm[:, i], v_norm[:, j]) / (
+                    np.linalg.norm(v_norm[:, i]) * np.linalg.norm(v_norm[:, j]) + 1e-8)
+                
+                k_dimension_similarity[i, j] = k_sim
+                v_dimension_similarity[i, j] = v_sim
+    
+    # Use a greedy algorithm with a size limit per group
+    k_groups = []
+    v_groups = []
+    
+    # For key dimensions
+    k_visited = set()
+    for i in range(k_norm.shape[1]):
+        if i not in k_visited:
+            group = [emb_indices[i]]
+            k_visited.add(i)
+            
+            # Find most similar dimensions
+            similarities = [(j, k_dimension_similarity[i, j]) 
+                           for j in range(k_norm.shape[1]) 
+                           if j != i and j not in k_visited]
+            # Sort by similarity (highest first)
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            
+            # Add top similar dimensions up to threshold and max size
+            for j, sim in similarities:
+                if sim >= similarity_threshold and len(group) < max_group_size:
+                    group.append(emb_indices[j])
+                    k_visited.add(j)
+            
+            if len(group) > 1:  # Only add groups with more than one dimension
+                k_groups.append(group)
+    
+    # For value dimensions
+    v_visited = set()
+    for i in range(v_norm.shape[1]):
+        if i not in v_visited:
+            group = [emb_indices[i]]
+            v_visited.add(i)
+            
+            # Find most similar dimensions
+            similarities = [(j, v_dimension_similarity[i, j]) 
+                           for j in range(v_norm.shape[1]) 
+                           if j != i and j not in v_visited]
+            # Sort by similarity (highest first)
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            
+            # Add top similar dimensions up to threshold and max size
+            for j, sim in similarities:
+                if sim >= similarity_threshold and len(group) < max_group_size:
+                    group.append(emb_indices[j])
+                    v_visited.add(j)
+            
+            if len(group) > 1:  # Only add groups with more than one dimension
+                v_groups.append(group)
+    
+    # Calculate compression benefits
+    k_compression = sum([len(group) - 1 for group in k_groups])
+    v_compression = sum([len(group) - 1 for group in v_groups])
+    
+    return {
+        "k_similarity": k_dimension_similarity,
+        "v_similarity": v_dimension_similarity,
+        "k_groups": k_groups,
+        "v_groups": v_groups,
+        "k_compression": k_compression,
+        "v_compression": v_compression,
+        "total_compression": k_compression + v_compression
+    }
