@@ -228,53 +228,47 @@ def evaluate_dimension_compression(model, tokenizer, kv_cache, prompt, continuat
         outputs = model(**combined_inputs, labels=labels)
         baseline_ppl = torch.exp(outputs.loss).item()
         
-        # Since we can't directly use the compressed cache due to shape mismatches,
-        # we'll simulate the impact by zeroing out dimensions in the input embeddings instead
+        # Simulation of dimension compression
         if dimension_groups and (len(dimension_groups["k_groups"]) > 0 or len(dimension_groups["v_groups"]) > 0):
-            # Get embeddings for input
             token_embeds = model.get_input_embeddings()(combined_inputs.input_ids)
             token_embeds_compressed = token_embeds.clone()
             
-            # Apply compression for key groups
+            # Process key dimension groups
             for group in dimension_groups["k_groups"]:
                 if len(group) <= 1:
                     continue
                 
-                rep_dim = group[0]  # Representative dimension
-                # Average the values in the group
+                # 1. Calculate average value across all dimensions in group
+                rep_dim = group[0]
                 avg_value = torch.zeros_like(token_embeds_compressed[:, :, rep_dim])
                 for dim in group:
                     avg_value += token_embeds_compressed[:, :, dim]
                 avg_value = avg_value / len(group)
                 
-                # Set representative dimension to average
-                token_embeds_compressed[:, :, rep_dim] = avg_value
-                
-                # Zero out other dimensions in the group
-                for dim in group[1:]:
-                    token_embeds_compressed[:, :, dim] = 0.0
+                # 2. Set ALL dimensions in the group to this average value
+                # This simulates them all having identical information (true compression)
+                for dim in group:
+                    token_embeds_compressed[:, :, dim] = avg_value.clone()
             
-            # Apply compression for value groups - using same approach
+            # Process value dimension groups (same approach)
             for group in dimension_groups["v_groups"]:
                 if len(group) <= 1:
                     continue
                 
-                rep_dim = group[0]  # Representative dimension
-                # Average the values in the group
+                # 1. Calculate average value
+                rep_dim = group[0]
                 avg_value = torch.zeros_like(token_embeds_compressed[:, :, rep_dim])
                 for dim in group:
                     avg_value += token_embeds_compressed[:, :, dim]
                 avg_value = avg_value / len(group)
                 
-                # Set representative dimension to average
-                token_embeds_compressed[:, :, rep_dim] = avg_value
-                
-                # Zero out other dimensions in the group
-                for dim in group[1:]:
-                    token_embeds_compressed[:, :, dim] = 0.0
+                # 2. Set ALL dimensions in the group to this average
+                for dim in group:
+                    token_embeds_compressed[:, :, dim] = avg_value.clone()
             
             # Forward pass with modified embeddings
             outputs_compressed = model(inputs_embeds=token_embeds_compressed, labels=labels)
+            compressed_ppl = torch.exp(outputs_compressed.loss).item()
             
             # Check for valid perplexity
             if torch.isnan(outputs_compressed.loss) or torch.isinf(outputs_compressed.loss):

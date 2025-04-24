@@ -766,7 +766,7 @@ def identify_token_embedding_compression(results):
         "compression": compression
     }
 
-def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.85, max_group_size=8):
+def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, max_group_size=16):
     """
     Identify embedding dimensions that can be grouped based on activation patterns.
     
