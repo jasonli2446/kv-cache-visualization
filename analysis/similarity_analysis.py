@@ -766,14 +766,15 @@ def identify_token_embedding_compression(results):
         "compression": compression
     }
 
-def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, max_group_size=16):
+def identify_groupable_embedding_dimensions(kv_cache, adaptive_threshold=True, min_similarity=0.6):
     """
     Identify embedding dimensions that can be grouped based on activation patterns.
+    Uses adaptive clustering to find natural groups in the data.
     
     Args:
         kv_cache: KV cache from model output
-        similarity_threshold: Threshold for determining similarity (higher = more conservative)
-        max_group_size: Maximum number of dimensions per group
+        adaptive_threshold: Whether to adapt threshold based on data distribution
+        min_similarity: Minimum baseline similarity threshold
         
     Returns:
         Dict with groups of similar dimensions that can be compressed
@@ -785,8 +786,9 @@ def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, 
     k_norm = token_emb["k_token_emb"]
     v_norm = token_emb["v_token_emb"]
     emb_indices = token_emb["emb_indices"]
+    head_dim = len(emb_indices)
     
-    # Calculate column-wise similarity (dimension to dimension)
+    # Calculate column-wise similarity matrices
     k_dimension_similarity = np.zeros((k_norm.shape[1], k_norm.shape[1]))
     v_dimension_similarity = np.zeros((v_norm.shape[1], v_norm.shape[1]))
     
@@ -796,7 +798,7 @@ def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, 
                 k_dimension_similarity[i, j] = 1.0
                 v_dimension_similarity[i, j] = 1.0
             else:
-                # Cosine similarity between dimension patterns across tokens
+                # Cosine similarity between dimension patterns
                 k_sim = np.dot(k_norm[:, i], k_norm[:, j]) / (
                     np.linalg.norm(k_norm[:, i]) * np.linalg.norm(k_norm[:, j]) + 1e-8)
                 v_sim = np.dot(v_norm[:, i], v_norm[:, j]) / (
@@ -805,55 +807,72 @@ def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, 
                 k_dimension_similarity[i, j] = k_sim
                 v_dimension_similarity[i, j] = v_sim
     
-    # Use a greedy algorithm with a size limit per group
+    # Convert similarity matrices to distance matrices
+    k_distance = 1.0 - k_dimension_similarity
+    v_distance = 1.0 - v_dimension_similarity
+    
+    # Use hierarchical clustering to find natural groupings
+    from scipy.cluster import hierarchy
+    from scipy.spatial.distance import squareform
+    
+    # Convert to condensed distance matrices
+    k_condensed = squareform(k_distance)
+    v_condensed = squareform(v_distance)
+    
+    # Perform hierarchical clustering
+    k_linkage = hierarchy.linkage(k_condensed, method='average')
+    v_linkage = hierarchy.linkage(v_condensed, method='average')
+    
+    # Determine optimal clustering thresholds based on data
+    if adaptive_threshold:
+        # Find elbow in the distance curve using acceleration
+        k_distances = k_linkage[:, 2]
+        k_acceleration = np.diff(np.diff(k_distances))
+        k_elbow_idx = np.argmax(k_acceleration) + 2  # +2 due to double diff
+        k_threshold = 1.0 - k_linkage[k_elbow_idx, 2]
+        k_threshold = max(min_similarity, min(0.95, k_threshold))  # Keep within reasonable range
+        
+        v_distances = v_linkage[:, 2]
+        v_acceleration = np.diff(np.diff(v_distances))
+        v_elbow_idx = np.argmax(v_acceleration) + 2
+        v_threshold = 1.0 - v_linkage[v_elbow_idx, 2]
+        v_threshold = max(min_similarity, min(0.95, v_threshold))
+    else:
+        k_threshold = min_similarity
+        v_threshold = min_similarity
+    
+    # Cut the hierarchical tree to form clusters
+    k_clusters = hierarchy.fcluster(k_linkage, 1.0 - k_threshold, criterion='distance')
+    v_clusters = hierarchy.fcluster(v_linkage, 1.0 - v_threshold, criterion='distance')
+    
+    # Group dimensions by cluster
     k_groups = []
     v_groups = []
     
-    # For key dimensions
-    k_visited = set()
-    for i in range(k_norm.shape[1]):
-        if i not in k_visited:
-            group = [emb_indices[i]]
-            k_visited.add(i)
-            
-            # Find most similar dimensions
-            similarities = [(j, k_dimension_similarity[i, j]) 
-                           for j in range(k_norm.shape[1]) 
-                           if j != i and j not in k_visited]
-            # Sort by similarity (highest first)
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            
-            # Add top similar dimensions up to threshold and max size
-            for j, sim in similarities:
-                if sim >= similarity_threshold and len(group) < max_group_size:
-                    group.append(emb_indices[j])
-                    k_visited.add(j)
-            
-            if len(group) > 1:  # Only add groups with more than one dimension
-                k_groups.append(group)
+    # Process key clusters
+    k_cluster_dict = {}
+    for i, cluster_id in enumerate(k_clusters):
+        if cluster_id not in k_cluster_dict:
+            k_cluster_dict[cluster_id] = []
+        k_cluster_dict[cluster_id].append(emb_indices[i])
     
-    # For value dimensions
-    v_visited = set()
-    for i in range(v_norm.shape[1]):
-        if i not in v_visited:
-            group = [emb_indices[i]]
-            v_visited.add(i)
-            
-            # Find most similar dimensions
-            similarities = [(j, v_dimension_similarity[i, j]) 
-                           for j in range(v_norm.shape[1]) 
-                           if j != i and j not in v_visited]
-            # Sort by similarity (highest first)
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            
-            # Add top similar dimensions up to threshold and max size
-            for j, sim in similarities:
-                if sim >= similarity_threshold and len(group) < max_group_size:
-                    group.append(emb_indices[j])
-                    v_visited.add(j)
-            
-            if len(group) > 1:  # Only add groups with more than one dimension
-                v_groups.append(group)
+    # Add clusters with multiple dimensions
+    for cluster_dims in k_cluster_dict.values():
+        if len(cluster_dims) > 1:
+            # Sort dimensions by importance (optional)
+            k_groups.append(sorted(cluster_dims))
+    
+    # Process value clusters
+    v_cluster_dict = {}
+    for i, cluster_id in enumerate(v_clusters):
+        if cluster_id not in v_cluster_dict:
+            v_cluster_dict[cluster_id] = []
+        v_cluster_dict[cluster_id].append(emb_indices[i])
+    
+    # Add clusters with multiple dimensions
+    for cluster_dims in v_cluster_dict.values():
+        if len(cluster_dims) > 1:
+            v_groups.append(sorted(cluster_dims))
     
     # Calculate compression benefits
     k_compression = sum([len(group) - 1 for group in k_groups])
@@ -866,5 +885,7 @@ def identify_groupable_embedding_dimensions(kv_cache, similarity_threshold=0.7, 
         "v_groups": v_groups,
         "k_compression": k_compression,
         "v_compression": v_compression,
-        "total_compression": k_compression + v_compression
+        "total_compression": k_compression + v_compression,
+        "k_threshold_used": k_threshold,
+        "v_threshold_used": v_threshold
     }

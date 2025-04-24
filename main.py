@@ -328,15 +328,18 @@ def run_similarity_analysis(model, tokenizer, prompt, device):
     }
 
 def run_compression_evaluation(model, tokenizer, prompt, device):
-    """Run embedding dimension compression evaluation."""
+    """Run embedding compression evaluation."""
     print(f"Running embedding compression evaluation on prompt: '{prompt[:50]}...'")
     
     # Extract KV cache
     kv_cache, outputs = extract_kv_cache(model, tokenizer, prompt, device)
     
-    # Find groupable dimensions
-    print("Identifying groupable embedding dimensions...")
-    dimension_groups = identify_groupable_embedding_dimensions(kv_cache)
+    # Find groupable dimensions using adaptive clustering
+    print("Identifying groupable embedding dimensions using adaptive clustering...")
+    dimension_groups = identify_groupable_embedding_dimensions(kv_cache, adaptive_threshold=True)
+    
+    print(f"Used similarity thresholds - Keys: {dimension_groups['k_threshold_used']:.3f}, Values: {dimension_groups['v_threshold_used']:.3f}")
+    print(f"Found {len(dimension_groups['k_groups'])} key groups and {len(dimension_groups['v_groups'])} value groups")
     
     # After identifying dimension groups, generate the visualization
     plot_dimension_grouping(dimension_groups)
