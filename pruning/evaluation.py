@@ -268,7 +268,6 @@ def evaluate_dimension_compression(model, tokenizer, kv_cache, prompt, continuat
             
             # Forward pass with modified embeddings
             outputs_compressed = model(inputs_embeds=token_embeds_compressed, labels=labels)
-            compressed_ppl = torch.exp(outputs_compressed.loss).item()
             
             # Check for valid perplexity
             if torch.isnan(outputs_compressed.loss) or torch.isinf(outputs_compressed.loss):

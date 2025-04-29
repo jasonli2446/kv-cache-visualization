@@ -329,6 +329,18 @@ def run_similarity_analysis(model, tokenizer, prompt, device):
 
 def run_compression_evaluation(model, tokenizer, prompt, device):
     """Run embedding compression evaluation."""
+    # Set all random seeds for reproducibility
+    import random
+    import numpy as np
+    import torch
+    from sklearn.cluster import KMeans
+    
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+        
     print(f"Running embedding compression evaluation on prompt: '{prompt[:50]}...'")
     
     # Extract KV cache
@@ -336,7 +348,8 @@ def run_compression_evaluation(model, tokenizer, prompt, device):
     
     # Find groupable dimensions using adaptive clustering
     print("Identifying groupable embedding dimensions using adaptive clustering...")
-    dimension_groups = identify_groupable_embedding_dimensions(kv_cache, adaptive_threshold=True)
+    dimension_groups = identify_groupable_embedding_dimensions(kv_cache, adaptive_threshold=False, 
+                                                         similarity_threshold=0.85)
     
     print(f"Used similarity thresholds - Keys: {dimension_groups['k_threshold_used']:.3f}, Values: {dimension_groups['v_threshold_used']:.3f}")
     print(f"Found {len(dimension_groups['k_groups'])} key groups and {len(dimension_groups['v_groups'])} value groups")
