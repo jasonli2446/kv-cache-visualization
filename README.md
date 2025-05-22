@@ -16,7 +16,7 @@ This project provides tools for analyzing and visualizing the Key-Value (KV) cac
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/kv-cache-visualization.git
+git clone https://github.com/jasonli2446/kv-cache-visualization
 cd kv-cache-visualization
 ```
 
