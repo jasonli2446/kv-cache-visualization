@@ -19,8 +19,8 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150):
     Returns:
         List of text samples from WikiText
     """
-    # Load WikiText-2 dataset
-    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
+    # Load WikiText-103 dataset (much larger than WikiText-2)
+    dataset = load_dataset("wikitext", "wikitext-103-raw-v1", split=split)
     
     # Filter to get only substantial paragraphs
     filtered_texts = [
@@ -36,19 +36,50 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150):
     
     return samples
 
-def get_wikitext_prompt(index=0):
+def concatenate_wikitext_samples(num_samples=5, target_tokens=512):
     """
-    Get a single WikiText prompt for analysis.
+    Concatenate multiple WikiText samples to reach target token length.
     
     Args:
-        index: Index of the sample to use (0-4)
+        num_samples: Number of samples to concatenate
+        target_tokens: Target number of tokens to reach
+        
+    Returns:
+        Concatenated text from multiple WikiText samples
+    """
+    samples = load_wikitext_sample(num_samples=num_samples)
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
+    
+    # Concatenate samples with newlines
+    concatenated = "\n\n".join(samples)
+    tokens = tokenizer.encode(concatenated)
+    
+    # If we have more tokens than needed, truncate
+    if len(tokens) > target_tokens:
+        tokens = tokens[:target_tokens]
+        print(f"⚠️ Concatenated text was truncated to {len(tokens)} tokens")
+    
+    return tokenizer.decode(tokens)
+
+def get_wikitext_prompt(index=0, concatenate=True, target_tokens=512):
+    """
+    Get a WikiText prompt for analysis.
+    
+    Args:
+        index: Index of the sample to use (0-4) if not concatenating
+        concatenate: Whether to concatenate multiple samples
+        target_tokens: Target number of tokens when concatenating
         
     Returns:
         A text prompt from WikiText
     """
-    samples = load_wikitext_sample()
-    index = max(0, min(len(samples)-1, index))  # Ensure valid index
-    return samples[index]
+    if concatenate:
+        return concatenate_wikitext_samples(num_samples=5, target_tokens=target_tokens)
+    else:
+        # Use a higher minimum length for longer samples
+        samples = load_wikitext_sample(min_length=500)  # Increased from 150
+        index = max(0, min(len(samples)-1, index))  # Ensure valid index
+        return samples[index]
 
 def prepare_input_for_model(text, tokenizer, model_name, max_tokens=None):
     """

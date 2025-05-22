@@ -169,14 +169,14 @@ def run_tucker_analysis(
     run_sensitivity_analysis: bool = True
 ) -> Dict:
     """
-    Run Tucker decomposition analysis on the KV cache.
+    Run Tucker decomposition analysis on KV cache.
     
     Args:
         model_name: Name of the model to analyze
-        prompt: Optional prompt to use for analysis
+        prompt: Input prompt text
         embedding_rank: Rank for embedding dimension
         token_rank: Rank for token dimension
-        save_dir: Directory to save visualizations
+        save_dir: Directory to save results
         sequence_length: Target sequence length
         run_sensitivity_analysis: Whether to run layer sensitivity analysis
         
@@ -186,28 +186,27 @@ def run_tucker_analysis(
     # Create save directory if it doesn't exist
     os.makedirs(save_dir, exist_ok=True)
     
-    # Load model and get KV cache
-    print(f"Loading model {model_name}...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Load model and tokenizer
     model, tokenizer = load_model(model_name)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
     
-    if prompt is None:
-        # Get a longer prompt from WikiText
-        prompt = get_wikitext_prompt(config.WIKITEXT_INDEX)
-        prompt = prepare_input_for_model(prompt, tokenizer, model_name, max_tokens=sequence_length)
+    # Get a single long WikiText sample (no concatenation)
+    prompt = get_wikitext_prompt(concatenate=False, target_tokens=sequence_length)
     
-    print(f"Using prompt of length {len(tokenizer.encode(prompt))} tokens")
+    # Extract KV cache
+    kv_cache, _ = extract_kv_cache(model, tokenizer, prompt, device)
     
-    print("Extracting KV cache...")
-    kv_cache, _ = extract_kv_cache(model, tokenizer, prompt, device)  # Unpack the tuple
-    
-    # Print KV cache structure
-    num_layers = len(kv_cache)
-    # Get shape from the key tensor in the first layer
+    # Get tensor dimensions from first layer's key tensor
     key_tensor = kv_cache[0][0]  # First layer, key tensor
     batch_size, num_heads, seq_len, head_dim = key_tensor.shape
-    print(f"KV cache structure: {num_layers} layers, {num_heads} heads, {seq_len} sequence length, {head_dim} head dimensions")
-    print(f"Total KV cache size: {num_layers * batch_size * num_heads * seq_len * head_dim * 2 * 4 / (1024*1024):.2f} MB")
+    
+    print(f"\nAnalyzing KV cache with dimensions:")
+    print(f"  - Batch size: {batch_size}")
+    print(f"  - Number of heads: {num_heads}")
+    print(f"  - Sequence length: {seq_len}")
+    print(f"  - Head dimension: {head_dim}")
+    print(f"  - Number of layers: {len(kv_cache)}")
     
     # Perform Tucker decomposition
     print("Performing Tucker decomposition...")
@@ -224,7 +223,7 @@ def run_tucker_analysis(
     print(f"Value Reconstruction Error: {decomposition_results['reconstruction_error']['values']:.4f}")
     
     # Calculate memory usage
-    original_size = num_layers * batch_size * num_heads * seq_len * head_dim * 2  # *2 for both keys and values
+    original_size = len(kv_cache) * batch_size * num_heads * seq_len * head_dim * 2  # *2 for both keys and values
     compressed_size = original_size / compression_ratio
     print(f"\nMemory Usage:")
     print(f"Original KV Cache: {original_size * 4 / (1024*1024):.2f} MB")
@@ -249,7 +248,7 @@ def run_tucker_analysis(
             'compressed': compressed_size * 4 / (1024*1024)
         },
         'structure': {
-            'num_layers': num_layers,
+            'num_layers': len(kv_cache),
             'num_heads': num_heads,
             'seq_len': seq_len,
             'head_dim': head_dim
