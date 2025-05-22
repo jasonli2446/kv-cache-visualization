@@ -5,8 +5,9 @@ Dataset loading utilities for KV cache analysis.
 from datasets import load_dataset
 import random
 import config
+from transformers import AutoTokenizer
 
-def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length=None):
+def load_wikitext_sample(split="test", num_samples=5, min_length=150):
     """
     Load a sample from WikiText dataset.
     
@@ -14,7 +15,6 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length
         split: Dataset split to use ('train', 'validation', or 'test')
         num_samples: Number of samples to choose from
         min_length: Minimum text length to consider
-        max_length: Maximum text length to consider
         
     Returns:
         List of text samples from WikiText
@@ -33,9 +33,6 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length
         samples = random.sample(filtered_texts, num_samples)
     else:
         samples = filtered_texts
-    
-    # Truncate to max_length if needed
-    samples = [text[:max_length] for text in samples]
     
     return samples
 
@@ -72,15 +69,16 @@ def prepare_input_for_model(text, tokenizer, model_name, max_tokens=None):
     # Use the smaller of the two max lengths if max_tokens is specified
     effective_max_length = min(max_tokens, model_max_length) if max_tokens is not None else model_max_length
     
-    # Tokenize and truncate if needed
-    tokens = tokenizer.encode(text, truncation=True, max_length=effective_max_length)
+    # First encode without truncation to check length
+    tokens = tokenizer.encode(text, truncation=False)
+    
+    # If we need to truncate
+    if len(tokens) > effective_max_length:
+        tokens = tokens[:effective_max_length]
+        print(f"⚠️ Input was truncated to {len(tokens)} tokens to fit model context window")
     
     # Decode back to text
     truncated_text = tokenizer.decode(tokens)
-    
-    if len(tokens) < len(tokenizer.encode(text)):
-        print(f"⚠️ Input was truncated to {len(tokens)} tokens to fit model context window")
-    
     return truncated_text
 
 def print_wikitext_samples():
@@ -92,6 +90,11 @@ def print_wikitext_samples():
     print("\n=== Available WikiText Samples ===")
     for i, sample in enumerate(samples):
         preview = sample[:100].replace('\n', ' ')
+        # Get tokenizer to count tokens
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
+        num_tokens = len(tokenizer.encode(sample))
         print(f"Sample {i}: {preview}...")
+        print(f"  Length: {len(sample)} chars, {num_tokens} tokens")
+        print()
     
     return samples

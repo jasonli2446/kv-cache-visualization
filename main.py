@@ -474,7 +474,7 @@ def main():
     
     elif args.mode == "list_samples":
         from utils.dataset_loaders import print_wikitext_samples
-        samples = print_wikitext_samples
+        print_wikitext_samples()  # Actually call the function
     
     print("\nDone!")
 

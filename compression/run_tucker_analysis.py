@@ -194,12 +194,7 @@ def run_tucker_analysis(
     if prompt is None:
         # Get a longer prompt from WikiText
         prompt = get_wikitext_prompt(config.WIKITEXT_INDEX)
-        prompt = prepare_input_for_model(prompt, tokenizer, model_name)
-        # Truncate or pad to desired length
-        tokens = tokenizer.encode(prompt)
-        if len(tokens) > sequence_length:
-            tokens = tokens[:sequence_length]
-        prompt = tokenizer.decode(tokens)
+        prompt = prepare_input_for_model(prompt, tokenizer, model_name, max_tokens=sequence_length)
     
     print(f"Using prompt of length {len(tokenizer.encode(prompt))} tokens")
     

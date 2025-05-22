@@ -1,155 +1,169 @@
-# KV Cache Visualization
+# KV Cache Visualization and Analysis
 
-This project provides tools to analyze and visualize the Key-Value (KV) cache in transformer-based language models. The visualizations and metrics help understand the internal workings of the model and identify optimization opportunities.
+This project provides tools for analyzing and visualizing the Key-Value (KV) cache in transformer-based language models, with a focus on understanding cache patterns and exploring compression techniques.
 
 ## Features
 
-- **Multi-level Analysis**: Examine KV cache at layer, head, token, and embedding dimension levels
-- **Visualization Suite**: Generate informative heatmaps, charts, and distribution plots
-- **Pruning Simulation**: Test the impact of pruning on model quality and performance
-- **Generation Analysis**: Analyze how KV cache patterns evolve during text generation
-- **Similarity Analysis**: Identify compressible patterns across layers, heads, tokens, and embedding dimensions
-- **Dataset Integration**: Use WikiText samples for realistic analysis scenarios
-- **Compression Opportunities**: Quantify potential KV cache size reduction through similarity detection
+- Layer-level analysis of KV cache sparsity
+- Head-level analysis of attention patterns
+- Token-level analysis of cache usage
+- Embedding-level analysis of dimension importance
+- Generation stage analysis
+- Similarity analysis for compression opportunities
+- Tucker decomposition for KV cache compression
 
-## How to Use
+## Installation
 
-1. **Install Dependencies**:
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/kv-cache-visualization.git
+cd kv-cache-visualization
+```
 
-   - Ensure you have Python installed.
-   - Install the required libraries:
-     ```bash
-     pip install -r requirements.txt
-     ```
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-2. **Analysis Mode**:
+## Usage
 
-   - Execute `main.py` to generate visualizations and analyze the KV cache:
+### Basic Analysis
 
-     ```bash
-     python main.py --mode analyze
-     ```
+Run the main analysis pipeline:
 
-   - Focus on specific aspects of analysis:
-     ```bash
-     python main.py --mode analyze --analysis_focus layers|heads|tokens|embeddings
-     ```
+```bash
+python main.py --mode analyze
+```
 
-3. **Generation Analysis**:
+### Tucker Decomposition Analysis
 
-   - Analyze how KV cache changes during the generation process:
-     ```bash
-     python main.py --mode analyze_generation
-     ```
+The Tucker decomposition analysis allows you to compress the KV cache along the embedding and token dimensions. This can help reduce memory usage while maintaining model performance.
 
-4. **Similarity Analysis**:
+```bash
+python compression/run_tucker_analysis.py --sequence_length 512 --embedding_rank 32 --token_rank 32
+```
 
-   - Identify compressible patterns across the KV cache:
-     ```bash
-     python main.py --mode analyze_similarity
-     ```
-   
-   - This mode detects redundant information that could be merged or compressed
+Parameters:
+- `--sequence_length`: Target sequence length (default: 2048)
+- `--embedding_rank`: Rank for embedding dimension (default: 32)
+- `--token_rank`: Rank for token dimension (default: 32)
+- `--no_sensitivity`: Skip layer sensitivity analysis
 
-5. **Pruning Simulation**:
+The analysis will:
+1. Load the model and extract the KV cache
+2. Perform Tucker decomposition with specified ranks
+3. Calculate compression ratio and reconstruction error
+4. Generate visualizations of the decomposition components
+5. Optionally run layer sensitivity analysis
 
-   - Simulate pruning specific layers:
+Outputs:
+- Compression statistics (ratio, memory usage, reconstruction error)
+- Tucker component visualizations in `graphs/tucker/`
+- Layer sensitivity analysis plots (if enabled)
 
-     ```bash
-     python main.py --mode prune --prune_layers 0,1,2
-     ```
+### Other Analysis Modes
 
-   - Simulate pruning specific attention heads:
+- Layer analysis:
+```bash
+python main.py --mode analyze --analysis_focus layers
+```
 
-     ```bash
-     python main.py --mode prune --prune_layers 0 --prune_heads 2,3
-     ```
+- Head analysis:
+```bash
+python main.py --mode analyze --analysis_focus heads
+```
 
-   - Use custom prompts and continuations:
-     ```bash
-     python main.py --mode prune --prune_layers 0 --prompt "Your custom prompt text" --continuation "Text to evaluate model quality"
-     ```
+- Token analysis:
+```bash
+python main.py --mode analyze --analysis_focus tokens
+```
 
-6. **Use Different Datasets**:
+- Embedding analysis:
+```bash
+python main.py --mode analyze --analysis_focus embeddings
+```
 
-   - List available sample texts:
+### Generation Stage Analysis
 
-     ```bash
-     python main.py --mode list_samples
-     ```
+Analyze how the KV cache evolves during text generation:
 
-   - Use specific WikiText sample:
-     ```bash
-     python main.py --use_wikitext --wikitext_index 2
-     ```
+```bash
+python main.py --mode analyze_generation
+```
+
+### Similarity Analysis
+
+Find compressible patterns in the KV cache:
+
+```bash
+python main.py --mode analyze_similarity
+```
+
+### Compression Evaluation
+
+Evaluate embedding dimension compression:
+
+```bash
+python main.py --mode compress
+```
+
+### Pruning Simulation
+
+Simulate pruning specific layers or heads:
+
+```bash
+python main.py --mode prune --prune_layers 0,1,2
+```
+
+### Dataset Options
+
+- List available WikiText samples:
+```bash
+python main.py --mode list_samples
+```
+
+- Use a specific WikiText sample:
+```bash
+python main.py --use_wikitext --wikitext_index 2
+```
 
 ## Generated Visualizations
 
 The tool produces various visualizations saved in the `graphs/` directory:
 
 ### Layer-level Analysis
-
 - `graphs/layers/layer_statistics.png`: Metrics across model layers
 - `graphs/layers/layer_pruning_potential.png`: Pruning potential by layer
 
 ### Head-level Analysis
-
 - `graphs/heads/head_sparsity.png`: Sparsity heatmaps by layer and head
 - `graphs/heads/head_pruning_potential.png`: Pruning potential by attention head
 - `graphs/heads/pruning_heatmap_by_layer_head.png`: Detailed pruning heatmap
 
 ### Token-level Analysis
-
 - `graphs/tokens/token_position_importance.png`: Importance scores for token positions
 - `graphs/tokens/generation_stages_comparison.png`: Sparsity patterns during generation
 
 ### Embedding-level Analysis
-
 - `graphs/embeddings/embedding_consistency.png`: Sparsity across embedding dimensions
 - `graphs/embeddings/sparse_dense_embedding_patterns.png`: Dimension activation patterns
 
-### Weight Analysis
+### Tucker Decomposition Analysis
+- `graphs/tucker/tucker_components.png`: Visualization of Tucker decomposition components
+- `graphs/tucker/layer_sensitivity.png`: Layer-wise reconstruction error analysis
 
-- `graphs/weight_magnitude_distribution.png`: Distribution of weight magnitudes
+## Configuration
 
-### Similarity Analysis
+Key parameters can be adjusted in `config.py`:
+- Model selection
+- Analysis thresholds
+- Visualization settings
+- Dataset options
 
-- `graphs/similarity/layer_similarity_matrix.png`: Similarity between model layers
-- `graphs/similarity/head_similarity_matrix.png`: Similarity between attention heads
-- `graphs/similarity/embedding_dimension_correlations.png`: Correlation between embedding dimensions
-- `graphs/similarity/token_similarity_matrix.png`: Similarity between token positions
-- `graphs/similarity/token_kv_similarity_matrices.png`: Separate key and value token similarity
-- `graphs/similarity/token_embedding_patterns.png`: Cross-dimensional analysis between tokens and embeddings
+## Contributing
 
-## Project Structure
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-- `main.py`: Main entry point with command-line interface
-- `config.py`: Configuration parameters for analysis and visualization
-- `analysis/`: Modules for analyzing different aspects of KV cache
-  - `layer_analysis.py`: Layer-level analysis functions
-  - `head_analysis.py`: Head-level analysis functions
-  - `token_analysis.py`: Token position analysis functions
-  - `embedding_analysis.py`: Embedding dimension analysis functions
-  - `similarity_analysis.py`: Functions to find compressible patterns
-- `visualization/`: Plotting functions for different visualization types
-  - `layer_plots.py`: Layer-level visualizations
-  - `head_plots.py`: Head-level visualizations
-  - `token_plots.py`: Token-level visualizations
-  - `embedding_plots.py`: Embedding-level visualizations
-  - `similarity_plots.py`: Similarity and compression visualizations
-  - `common.py`: Common visualization utilities
-- `pruning/`: KV cache pruning simulation
-  - `pruner.py`: Core pruning functionality
-  - `evaluation.py`: Metrics for evaluating pruning impact
-- `utils/`: Utility functions
-  - `data_collection.py`: Functions for collecting KV cache data
-  - `dataset_loaders.py`: Functions for loading sample texts
-  - `generation_stages.py`: Utilities for analyzing generation process
-- `graph-explanations.md`: Detailed explanations of visualizations
+## License
 
-## Requirements
-
-- Python 3.7+
-- PyTorch 2.0+
-- Transformers 4.30+
-- CUDA-capable GPU (optional but recommended for faster processing)
+This project is licensed under the MIT License - see the LICENSE file for details.
