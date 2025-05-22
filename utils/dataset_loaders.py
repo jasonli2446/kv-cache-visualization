@@ -7,7 +7,7 @@ import random
 import config
 from transformers import AutoTokenizer
 
-def load_wikitext_sample(split="test", num_samples=5, min_length=150):
+def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length=None):
     """
     Load a sample from WikiText dataset.
     
@@ -15,6 +15,7 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150):
         split: Dataset split to use ('train', 'validation', or 'test')
         num_samples: Number of samples to choose from
         min_length: Minimum text length to consider
+        max_length: Maximum text length to consider (None for no limit)
         
     Returns:
         List of text samples from WikiText
@@ -22,17 +23,41 @@ def load_wikitext_sample(split="test", num_samples=5, min_length=150):
     # Load WikiText-103 dataset (much larger than WikiText-2)
     dataset = load_dataset("wikitext", "wikitext-103-raw-v1", split=split)
     
+    # Get tokenizer for length checking
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
+    
     # Filter to get only substantial paragraphs
-    filtered_texts = [
-        text for text in dataset["text"] 
-        if len(text) >= min_length and text.strip() and not text.startswith("=")
-    ]
+    filtered_texts = []
+    for text in dataset["text"]:
+        if not text.strip() or text.startswith("="):
+            continue
+            
+        # Check character length
+        if len(text) < min_length:
+            continue
+            
+        # Check token length
+        num_tokens = len(tokenizer.encode(text))
+        if num_tokens < min_length // 4:  # Rough estimate: 4 chars per token
+            continue
+            
+        if max_length and num_tokens > max_length:
+            continue
+            
+        filtered_texts.append(text)
+    
+    print(f"\nFound {len(filtered_texts)} samples meeting length criteria")
     
     # Choose a sample of texts
     if len(filtered_texts) > num_samples:
         samples = random.sample(filtered_texts, num_samples)
     else:
         samples = filtered_texts
+    
+    # Print token counts for selected samples
+    for i, sample in enumerate(samples):
+        num_tokens = len(tokenizer.encode(sample))
+        print(f"Sample {i}: {num_tokens} tokens")
     
     return samples
 
@@ -77,7 +102,10 @@ def get_wikitext_prompt(index=0, concatenate=True, target_tokens=512):
         return concatenate_wikitext_samples(num_samples=5, target_tokens=target_tokens)
     else:
         # Use a higher minimum length for longer samples
-        samples = load_wikitext_sample(min_length=500)  # Increased from 150
+        samples = load_wikitext_sample(
+            min_length=2000,  # Increased significantly
+            max_length=target_tokens * 2  # Allow samples up to 2x target length
+        )
         index = max(0, min(len(samples)-1, index))  # Ensure valid index
         return samples[index]
 
