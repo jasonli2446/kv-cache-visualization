@@ -434,8 +434,9 @@ def main():
     
     # Load model
     print(f"Loading model: {args.model}")
-    model = AutoModelForCausalLM.from_pretrained(args.model).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    model_name = "/mnt/vstor/CSE_ECSE_GXD234/Meta-Llama-3-8B-Instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     
     prompt = prepare_input_for_model(prompt, tokenizer, args.model)
     

@@ -7,3 +7,4 @@ numpy>=1.24.0
 pandas>=2.0.0
 scipy>=1.10.0
 datasets>=2.10.0
+tensorly>=0.8.0

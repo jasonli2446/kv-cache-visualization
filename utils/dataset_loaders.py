@@ -6,7 +6,7 @@ from datasets import load_dataset
 import random
 import config
 
-def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length=500):
+def load_wikitext_sample(split="test", num_samples=5, min_length=150, max_length=None):
     """
     Load a sample from WikiText dataset.
     
@@ -53,26 +53,26 @@ def get_wikitext_prompt(index=0):
     index = max(0, min(len(samples)-1, index))  # Ensure valid index
     return samples[index]
 
-def prepare_input_for_model(text, tokenizer, model_name, max_tokens=512):
+def prepare_input_for_model(text, tokenizer, model_name, max_tokens=None):
     """
-    Prepare input text for the model by truncating if needed.
+    Prepare input text for the model.
     
     Args:
         text: Input text
         tokenizer: The model tokenizer
         model_name: Name of the model
-        max_tokens: Maximum number of tokens to keep
+        max_tokens: Maximum number of tokens to keep (None for no limit)
         
     Returns:
-        Truncated text that fits within model context window
+        Text that fits within model context window
     """
     # Get model's max sequence length
     model_max_length = tokenizer.model_max_length if hasattr(tokenizer, 'model_max_length') else 2048
     
-    # Use the smaller of the two max lengths
-    effective_max_length = min(max_tokens, model_max_length)
+    # Use the smaller of the two max lengths if max_tokens is specified
+    effective_max_length = min(max_tokens, model_max_length) if max_tokens is not None else model_max_length
     
-    # Tokenize and truncate
+    # Tokenize and truncate if needed
     tokens = tokenizer.encode(text, truncation=True, max_length=effective_max_length)
     
     # Decode back to text
