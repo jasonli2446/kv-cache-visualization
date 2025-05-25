@@ -4,6 +4,7 @@ Configuration parameters for KV cache visualization and pruning.
 
 # Model configuration
 DEFAULT_MODEL = "meta-llama/Llama-3.2-3B-Instruct"
+MODEL_PATH = "/mnt/vstor/CSE_ECSE_GXD234/Meta-Llama-3-8B-Instruct"
 DEFAULT_DEVICE = "cuda"  # Will fall back to "cpu" if CUDA not available
 
 # Analysis thresholds

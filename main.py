@@ -434,7 +434,7 @@ def main():
     
     # Load model
     print(f"Loading model: {args.model}")
-    model_name = "/mnt/vstor/CSE_ECSE_GXD234/Meta-Llama-3-8B-Instruct"
+    model_name = config.MODEL_PATH
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     
